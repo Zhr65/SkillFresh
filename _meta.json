@@ -1,0 +1,27 @@
+{
+  "slug": "skill-auditor",
+  "title": "能力折旧表 / Capability Depreciation",
+  "version": "0.4.0",
+  "author": "zhr15",
+  "runtime": "generic",
+  "emoji": "📉",
+  "color": "orange",
+  "tags": [
+    "能力折旧",
+    "skill 体检",
+    "插件体检",
+    "回归测试",
+    "降级归因",
+    "模型换代",
+    "Capability Depreciation",
+    "Skill Audit",
+    "Regression Test",
+    "Agent Tooling"
+  ],
+  "description": "模型换代时，装过的 skill / 插件不会报错，只会悄悄变差。这个 skill 给每个资产一个能力指纹，用 golden set 回归出通过率矩阵，指纹没变而通过率掉了才判退化；并回答三个问题：能力退化了吗、新装的好不好用、符不符合你本人。支持 DSH 插件 / WorkBuddy / Claude Code / Codex 多宿主。",
+  "description_zh": "模型换代时，装过的 skill / 插件不会报错，只会悄悄变差。这个 skill 给每个资产一个能力指纹，用 golden set 回归出通过率矩阵，指纹没变而通过率掉了才判退化；并回答三个问题：能力退化了吗、新装的好不好用、符不符合你本人。支持 DSH 插件 / WorkBuddy / Claude Code / Codex 多宿主。",
+  "description_en": "Installed skills and plugins do not throw errors when the model changes — they just quietly get worse. This skill fingerprints each asset, replays a golden set to build a pass-rate matrix, and only calls it degradation when the fingerprint is unchanged and the pass rate drops. Answers three questions: did capability degrade, is a new asset worth it, and does it fit you.",
+  "display_name": "能力折旧表",
+  "display_name_en": "Capability Depreciation",
+  "category": "ai-agent"
+}

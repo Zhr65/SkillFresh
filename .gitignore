@@ -1,0 +1,26 @@
+# ---- personal data (never commit / never ship) ----
+hosts.json
+registry*.json
+model-version.json
+baseline-results.json
+recorded-*.json
+depreciation-report.json
+depreciation-report.md
+fingerprint-report.json
+fingerprint-report.md
+demo-results.json
+golden/*.json
+!golden/_template.json
+# replay logs quote the user's real prompts/projects
+replay/
+# pre-0.3.0 artifacts kept for reference only
+_archive/
+
+# ---- build output ----
+dist/
+# demo.py 的沙盒，每次重跑都会重建
+demo/
+
+# ---- python ----
+__pycache__/
+*.pyc

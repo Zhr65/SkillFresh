@@ -1,0 +1,19 @@
+# ============================================================================
+# dsh-skill-auditor — DSH bundle patch
+# ============================================================================
+# 这是插件的「挂载声明」。DSH 启动时按 bundle 层栈叠加各插件 patch，本文件把
+# skill-auditor 挂到 host plane（工具注册面），让每个会话都能调用它注册的工具。
+#
+# 安装：
+#   dsh plugin --profile <name> add dsh-skill-auditor
+# 本地开发：
+#   dsh plugin --profile web add link:<本目录绝对路径>
+#
+# 临时关掉但保留安装（改 profile 自己的 cordis.patch.yml，不要改本文件）：
+#   - id: skill-auditor
+#     disabled: true
+# ============================================================================
+
+- insert:
+    - id: skill-auditor
+      name: dsh-skill-auditor

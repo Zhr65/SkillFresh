@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""
+skill-auditor :: install.py
+Install this skill into every agent host found on this machine.
+
+One core, many hosts: the engine is plain Python (stdlib only), so each host only
+needs the folder to appear in the directory it scans. This script finds those
+directories and links (or copies) the skill into them.
+
+Usage:
+  python install.py                       # link into every host dir that already exists
+  python install.py --targets workbuddy,dsh
+  python install.py --copy                # copy instead of link (no live updates)
+  python install.py --create              # create missing host dirs
+  python install.py --dry-run
+  python install.py --uninstall           # remove links that point at this folder
+
+Link vs copy:
+  link  -> edits here apply everywhere immediately (best while iterating)
+  copy  -> each host gets an independent snapshot (best for a stable release)
+
+On Windows, directory symlinks need Developer Mode or admin; the script falls back
+to a junction (mklink /J) and then to a copy, telling you which it used.
+"""
+import os
+import sys
+import shutil
+import argparse
+
+HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # .../skill-auditor
+NAME = os.path.basename(HERE)
+
+HOSTS = [
+    ("workbuddy-ai", "~/.workbuddy-ai/skills", "WorkBuddy Agent（本会话实际加载的目录）"),
+    ("workbuddy",    "~/.workbuddy/skills",    "WorkBuddy 桌面端技能市场目录"),
+    ("claude",       "~/.claude/skills",       "Claude Code"),
+    ("agents",       "~/.agents/skills",       "跨 agent 通用目录（skills CLI 也装这里）"),
+    ("dsh",          "~/.dsh/skills",          "DeepSeek Harness"),
+    ("codex",        "~/.codex/skills",        "OpenAI Codex CLI"),
+]
+
+
+def expand(p):
+    return os.path.abspath(os.path.expanduser(p))
+
+
+def link_dir(src, dst):
+    """Install src at dst and VERIFY it. Returns 'symlink' or 'copy'.
+
+    A failed link attempt must never leave an empty directory behind: that looks
+    installed to every host but contains nothing. Verify by reading SKILL.md
+    through the new path, and fall back to a real copy if linking didn't work.
+    """
+    try:
+        os.symlink(src, dst, target_is_directory=True)
+        if os.path.isfile(os.path.join(dst, "SKILL.md")):
+            return "symlink"
+        # created, but unusable — undo before falling back
+        if os.path.islink(dst):
+            os.unlink(dst)
+        else:
+            shutil.rmtree(dst, ignore_errors=True)
+    except (OSError, NotImplementedError, AttributeError):
+        if os.path.isdir(dst) and not os.listdir(dst):
+            os.rmdir(dst)          # leftover shell from a failed attempt
+
+    shutil.copytree(src, dst, ignore=shutil.ignore_patterns(
+        "dist", "_archive", "__pycache__", ".git", "*.pyc"))
+    if not os.path.isfile(os.path.join(dst, "SKILL.md")):
+        raise RuntimeError(f"installed to {dst} but SKILL.md is not readable there")
+    return "copy"
+
+
+def is_ours(dst):
+    """True if dst already points at / contains this skill."""
+    if os.path.islink(dst):
+        return os.path.realpath(dst) == os.path.realpath(HERE)
+    return os.path.isfile(os.path.join(dst, "SKILL.md"))
+
+
+def install_one(name, path, desc, args):
+    root = expand(path)
+    dst = os.path.join(root, NAME)
+
+    if not os.path.isdir(root):
+        if not args.create:
+            return name, "skip", f"目录不存在：{path}（加 --create 可创建）"
+        if args.dry_run:
+            return name, "dry", f"将创建 {path} 并安装"
+        os.makedirs(root, exist_ok=True)
+
+    if os.path.exists(dst) or os.path.islink(dst):
+        # An empty dir here is a leftover from a failed install, not a real skill.
+        if os.path.isdir(dst) and not os.path.islink(dst) and not os.listdir(dst):
+            if not args.dry_run:
+                os.rmdir(dst)
+        elif is_ours(dst) and not args.force:
+            return name, "ok", "已安装，跳过"
+        elif not args.force:
+            return name, "skip", f"目标已存在且不是本 skill：{dst}（加 --force 覆盖）"
+        elif args.dry_run:
+            return name, "dry", "将覆盖已有目标"
+        else:
+            if os.path.islink(dst):
+                os.unlink(dst)
+            else:
+                shutil.rmtree(dst)
+
+    if args.dry_run:
+        return name, "dry", f"将安装到 {dst}"
+
+    try:
+        method = "copy" if args.copy else link_dir(HERE, dst)
+    except Exception as e:                                    # noqa: BLE001
+        return name, "err", f"安装失败：{e}"
+
+    if method == "symlink":
+        note = f"符号链接 → {dst}（改源目录即时生效）"
+    elif args.copy:
+        note = f"复制 → {dst}"
+    else:
+        note = f"复制 → {dst}（此系统不支持符号链接，改动需重跑 install）"
+    return name, "ok", note
+
+
+def uninstall_one(name, path, args):
+    root = expand(path)
+    dst = os.path.join(root, NAME)
+    if not (os.path.exists(dst) or os.path.islink(dst)):
+        return name, "skip", "未安装"
+    if not is_ours(dst):
+        return name, "skip", "不是本 skill 的安装，未删除"
+    if args.dry_run:
+        return name, "dry", f"将删除 {dst}"
+    if os.path.islink(dst):
+        os.unlink(dst)
+    else:
+        shutil.rmtree(dst)
+    return name, "ok", f"已移除 {dst}"
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--targets", default="all",
+                    help="comma list of host names, or 'all' (default)")
+    ap.add_argument("--copy", action="store_true", help="copy instead of link")
+    ap.add_argument("--create", action="store_true", help="create missing host dirs")
+    ap.add_argument("--force", action="store_true", help="overwrite an existing install")
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--uninstall", action="store_true")
+    args = ap.parse_args()
+
+    wanted = None if args.targets == "all" else {t.strip() for t in args.targets.split(",") if t.strip()}
+    known = {h[0] for h in HOSTS}
+    if wanted and not wanted <= known:
+        print(f"[err] unknown target(s): {', '.join(sorted(wanted - known))}")
+        print(f"      known: {', '.join(sorted(known))}")
+        return 2
+
+    print(f"skill      : {NAME}")
+    print(f"source     : {HERE}")
+    print(f"mode       : {'uninstall' if args.uninstall else ('copy' if args.copy else 'link')}"
+          f"{' (dry-run)' if args.dry_run else ''}\n")
+
+    rows = []
+    for name, path, desc in HOSTS:
+        if wanted and name not in wanted:
+            continue
+        if args.uninstall:
+            rows.append(uninstall_one(name, path, args))
+        else:
+            rows.append(install_one(name, path, desc, args))
+
+    w = max(len(r[0]) for r in rows) + 2
+    for name, status, msg in rows:
+        mark = {"ok": "✓", "skip": "-", "dry": "·", "err": "✗"}.get(status, "?")
+        print(f"  {mark} {name:<{w}}{msg}")
+
+    ok = sum(1 for r in rows if r[1] == "ok")
+    print(f"\n{ok}/{len(rows)} 完成。验证：")
+    print(f"  python {os.path.join(HERE, 'scripts', 'console.py')} hosts")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

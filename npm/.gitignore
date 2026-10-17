@@ -1,0 +1,5 @@
+# 生成物，不入库（由 scripts/sync-engine.mjs 从上游 skill-auditor 同步）
+engine/
+
+node_modules/
+*.tgz

@@ -1,0 +1,47 @@
+{
+  "name": "dsh-skill-auditor",
+  "version": "0.4.0",
+  "description": "能力折旧表 · capability depreciation auditor for agent assets: regression-tests installed skills/plugins against the current model, attributes degradation, and recommends what to keep, rewrite, or drop. Ships as a DSH plugin (tools) and a host-neutral skill.",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "skill",
+    "audit",
+    "regression",
+    "capability-depreciation",
+    "agent-tools"
+  ],
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./cordis.patch.yml": "./cordis.patch.yml"
+  },
+  "files": [
+    "lib",
+    "skill",
+    "engine",
+    "cordis.patch.yml",
+    "plugin.json",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "sync": "node scripts/sync-engine.mjs",
+    "prepack": "node scripts/sync-engine.mjs",
+    "lint": "node --check lib/index.js && node --check lib/engine.mjs && node --check scripts/sync-engine.mjs",
+    "test": "node test/smoke.mjs && node test/tarball.mjs",
+    "dry": "npm pack --dry-run"
+  },
+  "license": "MIT"
+}
