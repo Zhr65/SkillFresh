@@ -230,26 +230,26 @@ cat ~/.dsh/skill-auditor/.engine.json     # 本机
 - [ ] `npm publish`（要你的 npm 账号）
 - [ ] 目录来源 PR（awesome-deepseek-harness-plugins / awesome-dsh-plugin）
 - [ ] WorkBuddy SkillHub 提交（`_meta.json` 已就绪，走市场发布流程）
-- [x] git 仓库（已 `git init -b main` + 2 次提交，30 个文件，零个人数据；**还差 push 到远端**）
-- [x] 30 秒演示（`demo.py`：沙盒 7 步真跑引擎，约 13 秒；全新 clone 实测通过）
+- [x] git 仓库（5 次提交，零个人数据；**已推送到 https://github.com/Zhr65/SkillFresh**）
+- [x] 30 秒演示（`demo.py`：沙盒 7 步真跑引擎，约 13 秒；**远端 clone 实测通过**）
 
-### 还差一步：push 到远端
+### 仓库已上线
 
-仓库已经能在本地 clone，但别人要 clone 得先有个远端地址：
-
-```bash
-cd ~/.workbuddy-ai/skills/skill-auditor
-git remote add origin git@github.com:<你的账号>/skill-auditor.git
-git push -u origin main
+```
+https://github.com/Zhr65/SkillFresh          # 仓库名 SkillFresh，项目名 skill-auditor
+git@github.com:Zhr65/SkillFresh.git          # SSH 远端
 ```
 
-推上去之后，别人就两条命令：
+别人两条命令：
 
 ```bash
-git clone <你的仓库地址> && cd skill-auditor
+git clone https://github.com/Zhr65/SkillFresh.git && cd SkillFresh
 python demo.py          # 约 13 秒，沙盒，不碰他的数据
 ```
 
-**全新 clone 实测**（不是推测）：`demo.py` 7 步全过、`npm test` 44 项全过。
-这个验证抓到过一个真 bug：`npm/engine/` 在 gitignore 里，`prepack` 只在 pack/publish 时跑，
-所以新 clone 里 `npm test` 会连锁失败 30 条 —— 已补 `pretest` 自动同步引擎。
+**从远端 clone 实测**（不是推测）：`demo.py` 7 步全过、`npm test` 44 项全过。
+
+这个验证抓到过两个真问题，都已修：
+1. `npm/engine/` 在 gitignore 里，`prepack` 只在 pack/publish 时跑 → 新 clone 里 `npm test` 连锁失败 30 条 → 补 `pretest` 自动同步
+2. 本机 git 的 HTTPS 走不通（`schannel: CRYPT_E_NO_REVOCATION_CHECK`，吊销检查拿不到）→ 改用 SSH 远端推送成功。
+   这是**本机环境**问题（代理 + schannel），不是仓库问题；别人用 HTTPS clone 一般不受影响。

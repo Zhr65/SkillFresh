@@ -14,6 +14,8 @@ python demo.py            # 约 13 秒，全程在 demo/ 沙盒里，不碰你�
 python demo.py --clean    # 看完删掉
 ```
 
+> HTTPS 走不通就用 SSH：`git clone git@github.com:Zhr65/SkillFresh.git`（需已配 GitHub SSH key）
+
 它会在沙盒里造 6 个假 skill，真跑一遍引擎：
 
 ```
