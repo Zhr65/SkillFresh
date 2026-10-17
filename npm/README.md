@@ -34,15 +34,8 @@ set SKILL_AUDITOR_PYTHON=C:\Python312\python.exe   # Windows
 
 ## 更新
 
-**先说一个硬事实：DSH 市场没有「更新」按钮。** 市场安装器对已在 profile 里的包会直接拒绝
-（`assertNotInstalled()` → `conflict: This plugin is already managed by the active profile.`），
-所以「已安装」视图只有卸载。升级只能走下面三条之一：
-
-| 路径 | 怎么做 | 代价 |
-|---|---|---|
-| 卸载 → 重装 | 市场 → 已安装 → 卸载 → 回发现页点安装 | 两步，中间插件不在 |
-| CLI（web profile） | `dsh plugin --profile web add dsh-skill-auditor` | 桌面 profile 被 Electron 独占，CLI 按设计拒绝 |
-| 手动 pnpm | `cd ~/.dsh/profiles/desktop && pnpm add dsh-skill-auditor@latest` | 绕过 Desktop 的 checkpoint，可能被 reconcile 覆盖 |
+**市场有「更新」按钮**（dshmarket 的「已安装」视图，桌面/web 都有）。`npm publish` 新版本后，
+用户点更新就走 pnpm 拿到新版；更新失败会自动回滚上一版，文件被宿主占用时会提示重启宿主。
 
 **怎么知道有新版本**：插件不会主动提醒（引擎不联网）。自己查：
 
@@ -54,6 +47,9 @@ cat ~/.dsh/skill-auditor/.engine.json     # 本机已装
 **更新后你的数据会怎样**：包的 `version` 变了，下次调用工具时自动把 `scripts/` 整体替换成新版
 （先删后拷，避免旧版本删掉的脚本残留），**注册表、基线、golden set、`hosts.json` 一条不动**。
 这条路径有测试覆盖（`test/smoke.mjs` 第 5 段）。
+
+> 排障备选：CLI `dsh plugin --profile web update dsh-skill-auditor`（仅 web profile），
+> 或手动 `cd ~/.dsh/profiles/desktop && pnpm add dsh-skill-auditor@latest`。
 
 ---
 

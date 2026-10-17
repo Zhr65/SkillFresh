@@ -192,37 +192,39 @@ npm publish            # 需要 npm 账号；2FA 用 --otp
 > 桌面端装完若没出现，完全退出（含托盘）再打开。
 > 引擎需要本机有 Python 3.8+；没有时工具会直接说清「装 Python 或设 SKILL_AUDITOR_PYTHON」，不会静默失败。
 
-### 发布之后怎么更新（已核到源码）
+### 发布之后怎么更新（已核到源码，**2026-10-18 修正**）
 
-**市场没有「更新」按钮。** `dsh-community-market/lib/install/service.js` 里：
+> **修正一个重要错误结论。** 本节此前写「市场没有更新按钮」——那是把
+> `dsh-community-market`（0.1.0-dev.0，只是个**目录来源适配器**）当成了市场本身。
+> 桌面应用里真正的市场 UI 是 **`dshmarket`**（app 内置 1.66.5 / web profile 1.66.20），
+> 它**有完整的更新功能**。用户在市场里看到的「更新」按钮是真的。
 
-```js
-async function assertNotInstalled(profile, packageName) {
-  const profileManifest = await readManifest(join(profile.dir, 'package.json'));
-  if (profileReferencesPlugin(profileManifest, packageName)) {
-    throw new MarketInstallError('conflict', 'This plugin is already managed by the active profile.');
-  }
-}
-```
+`dshmarket/lib/install.js` 核到的事实：
 
-已装的包再点安装 → 直接 `conflict`。官方文档也写明「已安装」视图「可移除依赖；核心 bundle 只读」，
-没有升级操作。所以升级只能三选一：
+- 更新走 pnpm（`add` / `remove` / `install` / `update` 四个动词，`update` 是独立路由）
+- **失败自动回滚**：更新失败会重装上一版，并明确区分「pnpm 没启动（什么都没动）」
+  和「文件被运行中的宿主占用（Windows file-locked）」——后者会提示重启宿主再试
+- **假成功防护**：装完逐包验证 dsh manifest 与入口产物，缺了当场移除，防止把下次启动搞挂
+- **支持 github 钉 commit 的目标**：`github:owner/repo#<sha>&path:/子目录`（含集合仓库
+  自动拆子包、中国区镜像已解析 commit 的兼容）
+- 版本权威仍是 npm registry（`name@<version>` / `latest`），git 来源保持 git 指向
 
-| 路径 | 怎么做 | 代价 |
-|---|---|---|
-| 卸载 → 重装 | 市场 → 已安装 → 卸载 → 回发现页点安装 | 两步，中间插件不在 |
-| CLI（web profile） | `dsh plugin --profile web add dsh-skill-auditor` | 桌面 profile 被 Electron 独占，CLI 按设计拒绝 |
-| 手动 pnpm | `cd ~/.dsh/profiles/desktop && pnpm add dsh-skill-auditor@latest` | 绕过 Desktop 的 checkpoint，可能被 reconcile 覆盖 |
-
-**版本权威是 npm `latest`**，所以只要 `npm publish` 了新版本，上面任一路径装到的就是新版。
-
-**数据兼容（这是我们自己的责任，市场不管）**：
+**对我们意味着**：`npm publish` 新版本 → 用户在市场「已安装」里点**更新** → 拿到新版。
+不需要卸载重装。引擎侧的数据兼容承诺不变：
 
 - 包的 `version` 变了 → 下次调用工具时 `ensureEngine()` 把 `scripts/` **先删后拷**整体替换
 - `registry.*.json` / `baseline-results.json` / `model-version.json` / `golden/*.json` / `hosts.json` **不动**
-- `.engine.json` 记录已装引擎版本；`test/smoke.mjs` 第 5 段专测这条路径（版本变化 → 代码替换 → 用户数据不变）
+- `.engine.json` 记录已装引擎版本；`test/smoke.mjs` 第 5 段专测这条路径
 
-**怎么让人知道有新版本**：引擎不联网，插件不会主动提醒。用户自查：
+**备选路径**（更新按钮之外，仍然成立）：
+
+| 路径 | 怎么做 | 适用 |
+|---|---|---|
+| 市场更新按钮 | 已安装 → 更新 | **首选**，桌面/web 都有 |
+| CLI（web profile） | `dsh plugin --profile web update dsh-skill-auditor` | `dsh web` 场景 |
+| 手动 pnpm | `cd ~/.dsh/profiles/desktop && pnpm add dsh-skill-auditor@latest` | 排障用，绕过市场 |
+
+**怎么让人知道有新版本**：市场更新页会比对 npm，但引擎本身不联网、不主动提醒。用户自查：
 
 ```bash
 npm view dsh-skill-auditor version        # 远端
