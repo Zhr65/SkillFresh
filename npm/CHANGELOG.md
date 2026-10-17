@@ -2,6 +2,31 @@
 
 版本号跟 npm `latest` 对齐：`npm view dsh-skill-auditor version` 是权威，市场目录里写的版本不作数。
 
+## 0.4.1 — 2026-10-17
+
+### 修正：指纹口径 v2（`v2-ability-surface`）
+
+**这是一次会改变已有指纹的升级**：旧 registry 里的指纹全部失效，需要重跑一次 `scan` 和一轮回归。
+
+- 指纹现在**只覆盖能力面**：`SKILL.md` / `scripts/` / `lib/` / `dist/` / `package.json` / `plugin.json` / `cordis.patch.yml` / 模板
+- 排除 `README*`、`CHANGELOG*`、`LICENSE*`、图片/音频/字体、`*.map`、锁文件、`node_modules/`、`test*/`、`docs/`
+- 原因：改 README 不改能力，却会让指纹动、产生**假的** `FINGERPRINT-DRIFT`。实测某插件 1437 KB 里有 57 KB 是 README，
+  另一个插件 67 个文件 / **16 MB** 全是打包产物 + 文档 —— 噪声盖住了信号
+- 验证：改 README → 指纹不变；加图片 → 不变；改 `lib/index.js` → 变
+
+### 新增：能力面（capability surface）
+
+- `scan` 现在额外记录每个资产**对外提供什么**：`patch` / `main` / `bin` / `exports` / `deps` / `skills` / `mcp` / `hooks` / `insert` / `scripts`
+- 与上次扫描对比，变化会显式打印：`[caps] 1 个资产的能力面有变化 … +bin`
+- `status` 新增 `caps` 列（能力面条目数）
+- 为什么插件需要这个：插件退化的形态是「工具没注册 / 路由 404 / 钩子没跑」，不是「回答变差」。
+  用 prompt golden set 测插件测的是错的东西；能力面 diff 不用启动宿主就能抓到「新版本少了个入口」
+
+### 边界（没做，别当成有）
+
+- **没有运行时探针**：能力面是 manifest **声明的**能力，不是宿主**实际注册**的能力。
+  manifest 撒谎（声明了 patch 但加载失败）这种情况抓不到，需要启动宿主列工具清单。
+
 ## 0.4.0 — 2026-10-17
 
 首个可发布版本。

@@ -128,7 +128,7 @@ DSH **有内置插件市场**（`dsh-community-market`），路径：**设置 �
 
 ```
 npm/
-├── package.json          # name=dsh-skill-auditor, version=0.4.0（稳定版）
+├── package.json          # name=dsh-skill-auditor, version=0.4.1（稳定版）
 │                         # "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
 ├── cordis.patch.yml      # - insert: [{ id: skill-auditor, name: dsh-skill-auditor }]
 ├── plugin.json           # skills: ./skill（宿主能把它当 skill 加载）
@@ -146,7 +146,7 @@ npm/
 |---|---|
 | 唯一合法 npm 包名 | `dsh-skill-auditor` — `npm view` 返回 404，未被占用 ✓ |
 | 非 Desktop 自有 bundle | 不是 `dsh-plugin-desktop*` / `dsh-community-market` ✓ |
-| `registry.npmjs.org/<pkg>/latest` 同名 + 精确稳定版本 | 待发布；`version` 已是 `0.4.0`，无 prerelease 后缀 ✓ |
+| `registry.npmjs.org/<pkg>/latest` 同名 + 精确稳定版本 | 待发布；`version` 已是 `0.4.1`，无 prerelease 后缀 ✓ |
 | manifest 声明安全相对路径 `dsh.bundle.patch` | `./cordis.patch.yml` ✓ |
 
 **本机已验证（不是推测）：**
@@ -171,7 +171,7 @@ npm publish           # 需要 npm 账号；首次发布前确认 2FA
 ```
 
 ```bash
-# 最后在市场里验：搜索 → 详情（安装 preview 显示 0.4.0）→ 安装 → 完全退出重开
+# 最后在市场里验：搜索 → 详情（安装 preview 显示 0.4.1）→ 安装 → 完全退出重开
 ```
 
 > 桌面端装完若没出现，完全退出（含托盘）再打开。

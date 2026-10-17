@@ -47,6 +47,62 @@ HOSTS_CFG = os.path.join(AUDITOR, "hosts.json")
 INDEXED_EXT = (".md", ".py", ".js", ".ts", ".json", ".sh", ".dot", ".yaml", ".yml")
 SCRIPT_EXT = (".py", ".js", ".ts", ".sh")
 
+# ---------------------------------------------------------------- 指纹口径
+# 指纹只覆盖**能力面**。文档/图片/锁文件不参与：
+#   · 改 README 不该触发「资产被改过」——它不影响能力，却会让指纹变，产生假的 FINGERPRINT-DRIFT
+#   · 插件包里常有 16MB 打包产物 + 一堆给不同 harness 的入口，文档混进去等于让噪声盖住信号
+# 口径有版本号，写进 registry；换口径时老指纹失效，需要重跑一轮回归。
+FP_ALGO = "v2-ability-surface"
+FP_EXCLUDE_DIRS = {
+    "node_modules", ".git", "__pycache__", "test", "tests", "__tests__",
+    "spec", "specs", "examples", "docs", ".github", "coverage", ".venv",
+}
+FP_EXCLUDE_NAME_RE = re.compile(
+    r"^(readme|changelog|changes|license|licence|contributing|security|"
+    r"authors|notice|code_of_conduct|history)([.\-_].*)?$", re.I)
+FP_EXCLUDE_SUFFIX = (".map", ".lock", "-lock.json", ".tgz", ".zip", ".log")
+FP_EXCLUDE_EXT = {
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".bmp", ".tiff",
+    ".mp3", ".wav", ".ogg", ".m4a", ".mp4", ".webm", ".mov",
+    ".ttf", ".woff", ".woff2", ".otf", ".eot",
+}
+
+
+def _fp_skip(rel_parts, filename):
+    """这个文件要不要排除出指纹？"""
+    for part in rel_parts[:-1]:
+        if part.lower() in FP_EXCLUDE_DIRS:
+            return True
+    low = filename.lower()
+    if FP_EXCLUDE_NAME_RE.match(low):
+        return True
+    if low.endswith(FP_EXCLUDE_SUFFIX):
+        return True
+    return os.path.splitext(low)[1] in FP_EXCLUDE_EXT
+
+
+def fingerprint_asset(path):
+    files = []
+    for root, dirs, fs in os.walk(path):
+        rel_root = os.path.relpath(root, path)
+        rel_parts = [] if rel_root == "." else rel_root.split(os.sep)
+        # 剪枝：不进入被排除的目录（否则 node_modules 里几万个文件全走一遍）
+        dirs[:] = [d for d in dirs if d.lower() not in FP_EXCLUDE_DIRS]
+        for f in fs:
+            if not f.endswith(INDEXED_EXT):
+                continue
+            if _fp_skip(rel_parts + [f], f):
+                continue
+            files.append(os.path.join(root, f))
+    files.sort()
+    h = hashlib.sha256()
+    for f in files:
+        with open(f, "rb") as fh:
+            h.update(fh.read())
+    for f in files:
+        h.update(os.path.relpath(f, path).encode("utf-8"))
+    return h.hexdigest()[:16], len(files)
+
 RISK_LOW = 100
 RISK_HIGH = 120
 PRUNE_RISK = 400
@@ -142,22 +198,6 @@ def parse_frontmatter(text):
 
 def split_tools(s):
     return [t for t in re.split(r"[\s,\-]+", s or "") if t]
-
-
-def fingerprint_asset(path):
-    files = []
-    for root, _, fs in os.walk(path):
-        for f in fs:
-            if f.endswith(INDEXED_EXT):
-                files.append(os.path.join(root, f))
-    files.sort()
-    h = hashlib.sha256()
-    for f in files:
-        with open(f, "rb") as fh:
-            h.update(fh.read())
-    for f in files:
-        h.update(os.path.relpath(f, path).encode("utf-8"))
-    return h.hexdigest()[:16], len(files)
 
 
 def parse_manifest(manifest_path):
@@ -258,9 +298,68 @@ def discover_assets(root, manifests, mode="dirs"):
             "tool_deps": meta["tool_deps"],
             "has_scripts": has_scripts,
             "risk": risk,
+            "capabilities": capability_surface(p, manifest),
             "path": os.path.abspath(p),
         })
     return out
+
+
+def capability_surface(asset_path, manifest_path):
+    """资产**对外提供什么** —— 与「文件内容变了吗」分开的第二个维度。
+
+    指纹回答「内容变了吗」，能力面回答「它对外提供的东西变了吗」。
+    插件退化最常见的形态不是「回答变差」，而是「工具没注册 / 路由 404 / 钩子没跑」，
+    所以对插件只测 prompt→输出 是不够的，得先能看见能力面。
+    """
+    caps = {}
+    mname = os.path.basename(manifest_path).lower()
+    if mname.endswith(".json"):
+        j = load_json(manifest_path, {}) or {}
+        dsh = j.get("dsh") if isinstance(j.get("dsh"), dict) else {}
+        bundle = dsh.get("bundle") if isinstance(dsh.get("bundle"), dict) else {}
+        if bundle.get("patch"):
+            caps["patch"] = str(bundle["patch"])
+        for key in ("main", "module", "bin"):
+            v = j.get(key)
+            if v:
+                caps[key] = len(v) if isinstance(v, (dict, list)) else str(v)[:40]
+        if isinstance(j.get("exports"), (dict, str)):
+            caps["exports"] = len(j["exports"]) if isinstance(j["exports"], dict) else 1
+        if isinstance(j.get("dependencies"), dict):
+            caps["deps"] = len(j["dependencies"])
+        if j.get("skills"):
+            caps["skills"] = str(j["skills"])[:40]
+        if isinstance(j.get("mcpServers"), dict):
+            caps["mcp"] = len(j["mcpServers"])
+        if j.get("hooks"):
+            caps["hooks"] = str(j["hooks"])[:40]
+        # cordis patch：标准库没有 YAML 解析器，只数 insert 条数（够判断能力面增减）
+        for cand in ("cordis.patch.yml", "cordis.patch.yaml"):
+            p = os.path.join(asset_path, cand)
+            if os.path.isfile(p):
+                try:
+                    with open(p, encoding="utf-8") as fh:
+                        caps["insert"] = len(re.findall(r"^\s*-\s*id:", fh.read(), re.M))
+                except Exception:
+                    pass
+                break
+    else:
+        try:
+            with open(manifest_path, encoding="utf-8") as fh:
+                txt = fh.read()
+        except Exception:
+            txt = ""
+        fm = parse_frontmatter(txt)
+        tools = fm.get("allowed-tools__list") or split_tools(fm.get("allowed-tools", ""))
+        if tools:
+            caps["tools"] = len(tools)
+    n_scripts = 0
+    for root, dirs, fs in os.walk(asset_path):
+        dirs[:] = [d for d in dirs if d.lower() not in FP_EXCLUDE_DIRS]
+        n_scripts += sum(1 for f in fs if f.endswith(SCRIPT_EXT))
+    if n_scripts:
+        caps["scripts"] = n_scripts
+    return caps
 
 
 # ---------------------------------------------------------------- host config
@@ -453,6 +552,16 @@ def cmd_scan(args):
             "eliminated": prev_assets.get(name, {}).get("eliminated", False),
             "note": prev_assets.get(name, {}).get("note", ""),
         })
+        # 能力面 diff：插件升级后最该看的是「对外提供的东西少了什么」，不是通过率
+        prev_caps = (prev_assets.get(name) or {}).get("capabilities") or {}
+        cur_caps = a.get("capabilities") or {}
+        if prev_caps and isinstance(prev_caps, dict):
+            added = sorted(set(cur_caps) - set(prev_caps))
+            removed = sorted(set(prev_caps) - set(cur_caps))
+            changed = sorted(k for k in set(cur_caps) & set(prev_caps)
+                             if cur_caps[k] != prev_caps[k])
+            if added or removed or changed:
+                a["caps_diff"] = {"added": added, "removed": removed, "changed": changed}
         out_assets[name] = a
 
     registry = {
@@ -461,6 +570,7 @@ def cmd_scan(args):
         "kind": prof["kind"],
         "label": prof["label"],
         "root": os.path.abspath(root),
+        "fp_algo": FP_ALGO,
         "active_model": active_model,
         "last_regression_model": baseline.get("baseline_model", active_model),
         "count": len(out_assets),
@@ -470,6 +580,18 @@ def cmd_scan(args):
     print(f"[ok] registry.{host}.json -> {len(out_assets)} {prof['label']}(s)")
     print(f"     root={root}")
     print(f"     active_model={active_model}  baseline_model={baseline.get('baseline_model')}")
+    drifted = [(k, v["caps_diff"]) for k, v in out_assets.items() if v.get("caps_diff")]
+    if drifted:
+        print(f"[caps] {len(drifted)} 个资产的能力面有变化（这是「它对外提供的东西变了」，与通过率无关）：")
+        for k, d in drifted:
+            bits = []
+            if d["added"]:
+                bits.append("+" + ",".join(d["added"]))
+            if d["removed"]:
+                bits.append("-" + ",".join(d["removed"]))
+            if d["changed"]:
+                bits.append("~" + ",".join(d["changed"]))
+            print(f"       {k:<40} {' '.join(bits)}")
     return 0
 
 
@@ -485,16 +607,21 @@ def cmd_status(args):
     # column width follows the longest asset name so scoped names (@scope/pkg) don't break the table
     names = list(reg_assets(reg).keys())
     w = max([28] + [len(n) + 2 for n in names])
-    print("-" * (w + 68))
-    print(f"{'asset':<{w}}{'fingerprint':<18}{'基线':<10}{'risk':<6}{'golden':<7}status")
-    print("-" * (w + 68))
+    print("-" * (w + 74))
+    print(f"{'asset':<{w}}{'fingerprint':<18}{'基线':<10}{'risk':<6}{'caps':<6}{'golden':<7}status")
+    print("-" * (w + 74))
     for name, s in sorted(reg_assets(reg).items()):
         rate = "—" if s.get("baseline_rate") is None else f"{s['baseline_rate']*100:.0f}%"
         base = f"{s.get('baseline_pass',0)}/{s.get('baseline_n',0)} {rate}" if s.get("baseline_n") else "— —"
         tag = " ✓elim" if s.get("eliminated") else ""
-        print(f"{name:<{w}}{s.get('fingerprint',''):<18}{base:<10}{s.get('risk',0):<6}{'Y' if s.get('has_golden') else '-':<7}{s.get('status','')}{tag}")
-    print("-" * (w + 68))
+        caps = s.get("capabilities") or {}
+        caps_n = len(caps) if isinstance(caps, dict) else 0
+        print(f"{name:<{w}}{s.get('fingerprint',''):<18}{base:<10}{s.get('risk',0):<6}"
+              f"{caps_n:<6}{'Y' if s.get('has_golden') else '-':<7}{s.get('status','')}{tag}")
+    print("-" * (w + 74))
     print("  注：基线为 K=1 单次判定（多为同模型自评）；risk = 行数+工具依赖的维护面代理，不代表价值。")
+    print(f"  caps = 能力面条目数（入口/patch/工具/脚本…）；指纹口径 {reg.get('fp_algo', 'v1')}，"
+          "只算能力面，不含 README/图片/锁文件。")
     return 0
 
 

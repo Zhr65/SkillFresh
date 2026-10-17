@@ -1,7 +1,7 @@
 ---
 name: skill-auditor
 description: "Use when evaluating a skill OR plugin's lifecycle across agents: detecting capability degradation after a model update, judging whether a new skill/plugin is effective and fits the user, or auditing whether to keep/rewrite/retire one. Works in WorkBuddy (skills), DeepSeek harness (plugins), and other hosts via adapters. Triggers: '评测这个 skill', '评测这个插件', '模型升级后 skill 还灵不灵', '新 skill 好不好用', '这个 skill 适合我吗', 'deepseek 插件好不好用', '跨 agent 评估能力', '做个 skill 并按评测流程走'."
-version: 0.3.0
+version: 0.4.1
 allowed-tools:
   - Read
   - Write
@@ -68,14 +68,43 @@ So in WorkBuddy you evaluate **skills**; in DeepSeek harness you evaluate **plug
 The fingerprint is the **row** of the depreciation matrix.
 
 ```
-fingerprint = hash(skill body + trigger + tool deps + output template + runtime params)
+fingerprint = hash(能力面文件内容 + 相对路径)        # 口径 v2-ability-surface
 ```
+
+**What counts as 能力面**（the files whose change actually changes behaviour）:
+
+- included: `SKILL.md`, `scripts/*`, `lib/*`, `dist/*`, `package.json`, `plugin.json`, `cordis.patch.yml`, templates
+- excluded: `README*`, `CHANGELOG*`, `LICENSE*`, images/audio/fonts, `*.map`, lockfiles, `node_modules/`, `test*/`, `docs/`
+
+Why exclude: a README edit does not change capability, but hashing it makes the fingerprint move and produces a **fake** `FINGERPRINT-DRIFT` ("the asset was edited") when nothing functional changed. Plugins make this worse — one installed plugin can carry 16 MB of bundled output plus a 57 KB README.
 
 Rules:
 - **Fingerprint unchanged ⇒ the row persists; a pass-rate drop is model regression.**
 - **Fingerprint changed ⇒ the change is the skill's own responsibility, not the model's.** Old and new rows coexist, so skill edits are never mis-attributed to model drift.
 
 Run `bash scripts/fingerprint.py <skills_dir>` to compute all fingerprints and store them in the registry (see Artifacts).
+
+## Capability Surface (why plugins need a second axis)
+
+The fingerprint says *"did the files change"*. It cannot say *"does it still offer the same thing"*.
+`scan` therefore also records a **capability surface** per asset and diffs it against the previous scan:
+
+| Asset kind | What the surface records |
+|---|---|
+| plugin | `patch` (dsh.bundle.patch), `main`/`module`, `bin`, `exports`, `deps`, `skills`, `mcp`, `hooks`, `insert` (cordis rows), `scripts` |
+| skill | `tools` (allowed-tools count), `scripts` |
+
+When it changes, `scan` prints it explicitly:
+
+```
+[caps] 1 个资产的能力面有变化（这是「它对外提供的东西变了」，与通过率无关）：
+       plug-a                                   +bin
+```
+
+**Why this matters for plugins:** a plugin degrades by *not registering its tools / 404-ing its routes / not running its hooks* — not by "answering worse". A golden set of prompts measures the wrong thing for a plugin. The surface diff catches "v1.1.0 dropped an entry point" without needing to boot the host.
+
+**Known boundary (do not paper over it):** there is **no runtime probe** yet. `scan` reads files and manifests; it does not boot the host and assert "these tools are actually registered". So the surface is *declared* capability, not *observed* capability. For a plugin whose manifest lies (declares a patch that fails to load), this cannot catch it — that needs a probe that starts the host and lists registered tools.
+
 
 ## Judgment 1 — Capability Degradation
 
