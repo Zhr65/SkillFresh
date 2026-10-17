@@ -33,9 +33,27 @@ import shutil
 import argparse
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # .../skill-auditor
-NAME = os.path.basename(HERE)
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from console import OK_MARK, FAIL_MARK  # noqa: E402
+
+
+def read_field(key, path=HERE):
+    """Read a frontmatter scalar (name/version) from SKILL.md."""
+    try:
+        with open(os.path.join(path, "SKILL.md"), encoding="utf-8-sig") as fh:
+            m = re.search(r"^%s:\s*(\S+)" % re.escape(key), fh.read(), re.M)
+        return m.group(1).strip('"\'') if m else ""
+    except Exception:
+        return ""
+
+
+# 目录名不一定等于 skill 名：`git clone ... SkillFresh` 下来的目录叫 SkillFresh。
+# 以 SKILL.md 的 name 为准，安装后的目录名才是各宿主能识别的 skill-auditor。
+NAME = read_field("name") or os.path.basename(HERE)
+
+
+def read_version(path=HERE):
+    return read_field("version", path)
 
 HOSTS = [
     ("workbuddy-ai", "~/.workbuddy-ai/skills", "WorkBuddy Agent（本会话实际加载的目录）"),
@@ -58,15 +76,6 @@ IGNORE = shutil.ignore_patterns(
 
 def expand(p):
     return os.path.abspath(os.path.expanduser(p))
-
-
-def read_version(path):
-    try:
-        with open(os.path.join(path, "SKILL.md"), encoding="utf-8-sig") as fh:
-            m = re.search(r"^version:\s*(\S+)", fh.read(), re.M)
-        return m.group(1).strip('"\'') if m else ""
-    except Exception:
-        return ""
 
 
 def ensure_template(dst):
@@ -118,6 +127,11 @@ def install_one(name, path, desc, args):
     root = expand(path)
     dst = os.path.join(root, NAME)
 
+    # 源头保护：`--force` 到源目录本身时，下面的 rmtree 会把源删掉（HERE 就在里面），
+    # 安装器把自己删了。这个路径必须先拦。
+    if os.path.realpath(dst) == os.path.realpath(HERE):
+        return name, "ok", "这是源目录本身，无需安装"
+
     if not os.path.isdir(root):
         if not args.create:
             return name, "skip", f"目录不存在：{path}（加 --create 可创建）"
@@ -163,6 +177,8 @@ def install_one(name, path, desc, args):
 def uninstall_one(name, path, args):
     root = expand(path)
     dst = os.path.join(root, NAME)
+    if os.path.realpath(dst) == os.path.realpath(HERE):
+        return name, "skip", "这是源目录本身，拒绝卸载"
     if not (os.path.exists(dst) or os.path.islink(dst)):
         return name, "skip", "未安装"
     if not is_ours(dst):

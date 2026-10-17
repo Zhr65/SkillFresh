@@ -290,6 +290,31 @@ class ScanModelFilterTests(unittest.TestCase):
         self.assertEqual(asset["status"], "unverified")
 
 
+class InstallSafetyTests(unittest.TestCase):
+    """--force / --uninstall 不能删掉源目录本身。"""
+
+    def test_force_on_source_is_refused(self):
+        import install as install_mod
+        tmp = mkdtemp()
+        try:
+            src = os.path.join(tmp, "skill-auditor")
+            write(os.path.join(src, "SKILL.md"), "---\nname: skill-auditor\nversion: 9.9.9\n---\n")
+            old_here, old_name = install_mod.HERE, install_mod.NAME
+            install_mod.HERE, install_mod.NAME = src, "skill-auditor"
+            try:
+                args = type("A", (), {"dry_run": False, "create": False,
+                                      "force": True, "copy": False})()
+                _, status, msg = install_mod.install_one("x", tmp, "d", args)
+            finally:
+                install_mod.HERE, install_mod.NAME = old_here, old_name
+            self.assertEqual(status, "ok")
+            self.assertIn("源目录本身", msg)
+            self.assertTrue(os.path.isfile(os.path.join(src, "SKILL.md")),
+                            "源目录必须还在")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 @unittest.skipUnless(os.name == "nt", "GBK console only exists on Windows")
 class GbkConsoleTests(unittest.TestCase):
     def test_hosts_does_not_crash(self):

@@ -127,6 +127,11 @@ def install_one(name, path, desc, args):
     root = expand(path)
     dst = os.path.join(root, NAME)
 
+    # 源头保护：`--force` 到源目录本身时，下面的 rmtree 会把源删掉（HERE 就在里面），
+    # 安装器把自己删了。这个路径必须先拦。
+    if os.path.realpath(dst) == os.path.realpath(HERE):
+        return name, "ok", "这是源目录本身，无需安装"
+
     if not os.path.isdir(root):
         if not args.create:
             return name, "skip", f"目录不存在：{path}（加 --create 可创建）"
@@ -172,6 +177,8 @@ def install_one(name, path, desc, args):
 def uninstall_one(name, path, args):
     root = expand(path)
     dst = os.path.join(root, NAME)
+    if os.path.realpath(dst) == os.path.realpath(HERE):
+        return name, "skip", "这是源目录本身，拒绝卸载"
     if not (os.path.exists(dst) or os.path.islink(dst)):
         return name, "skip", "未安装"
     if not is_ours(dst):

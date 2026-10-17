@@ -46,8 +46,8 @@
     },
     {
       "path": "scripts/install.py",
-      "bytes": 9031,
-      "sha256": "1ad4604b8640a8746b5352eb841ad03fd8f5225c358db056653a19bcfa953615"
+      "bytes": 9831,
+      "sha256": "0b896b283505e1a4cdf8dd647826ce3c504172e6d34778bcd9527decebb65a7d"
     },
     {
       "path": "scripts/regress.py",
