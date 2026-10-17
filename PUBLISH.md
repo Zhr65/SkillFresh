@@ -255,6 +255,12 @@ python scripts/build_dist.py        # → dist/skill-auditor.zip
 `dist/` 在 `.gitignore` 里（构建产物不入库），zip 内容按白名单打，不含
 `registry.*.json` / `baseline-results.json` / 个人 `golden/*.json`。
 
+当前 17 个文件。`demo.py` 也在里面 —— README 和 SkillHub 描述都指向「30 秒试一下」，
+不带它，从市场装的人第一步就跑不动（补这个是因为打完包才发现白名单漏了它）。
+
+**本机验过自包含**：解压 zip 到临时目录 → 直接 `python demo.py` → 7 步跑完，
+returncode 0，全程只写自己的沙盒目录。
+
 ### 3.3 提交（这一步要你登录确认）
 
 我没找到公开的自助提交 API（`/api/v1/search`、`/api/v1/download` 是读接口）。
