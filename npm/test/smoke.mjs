@@ -12,6 +12,13 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 
+// engine/ 是生成物（gitignore），新 clone 里没有。给一句人话，而不是 30 条连锁失败。
+const ENGINE_PY = new URL('../engine/scripts/console.py', import.meta.url)
+if (!fs.existsSync(ENGINE_PY)) {
+  console.error('[fail] 缺 npm/engine/ —— 先跑 `npm run sync`（`npm test` 会自动跑它）')
+  process.exit(1)
+}
+
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'skill-auditor-smoke-'))
 process.env.DSH_HOME = TMP
 delete process.env.SKILL_AUDITOR_HOME

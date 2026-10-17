@@ -39,6 +39,7 @@
   "scripts": {
     "sync": "node scripts/sync-engine.mjs",
     "prepack": "node scripts/sync-engine.mjs",
+    "pretest": "node scripts/sync-engine.mjs",
     "lint": "node --check lib/index.js && node --check lib/engine.mjs && node --check scripts/sync-engine.mjs",
     "test": "node test/smoke.mjs && node test/tarball.mjs",
     "dry": "npm pack --dry-run"
