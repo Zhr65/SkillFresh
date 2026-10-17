@@ -46,13 +46,14 @@ const ctx = {
 mod.apply(ctx)
 
 const names = registered.map((t) => t.name)
-check(names.length === 5, `注册 5 个工具（实际 ${names.length}）`, names.join(', '))
+check(names.length === 6, `注册 6 个工具（实际 ${names.length}）`, names.join(', '))
 for (const want of [
   'skill_audit_status',
   'skill_audit_recommend',
   'skill_audit_check',
   'skill_audit_scan',
   'skill_audit_suggest',
+  'skill_audit_probe',
 ]) {
   check(names.includes(want), `含 ${want}`)
 }
@@ -113,6 +114,12 @@ check(/缺少 need/.test(empty), 'need 为空时给出明确提示', empty)
 
 const scan = await registered.find((t) => t.name === 'skill_audit_scan').execute({ host: 'deepseek' }, {})
 check(/ok|registry/.test(scan), 'scan 输出可读', scan.slice(0, 200))
+
+// probe 在临时 DSH_HOME 里没有日志可读 —— 关键是它要说清「没有证据 ≠ 没问题」，而不是崩
+const probe = await registered.find((t) => t.name === 'skill_audit_probe').execute({ host: 'deepseek' }, {})
+check(/运行时证据|没有配置可读日志/.test(probe), 'probe 有实质输出', probe.slice(0, 300))
+check(!/Traceback|ENOENT: python/.test(probe), 'probe 无 traceback', probe.slice(0, 300))
+check(/没有证据|没有配置可读日志|故障迹象/.test(probe), 'probe 明确区分「没证据」与「没问题」', probe.slice(0, 300))
 
 // ---------------------------------------------------------------- ④ 幂等
 console.log('\n[4] 幂等 / 不覆盖用户数据')

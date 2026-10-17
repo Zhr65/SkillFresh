@@ -15,6 +15,7 @@ C="scripts/console.py"                       # 在仓库根目录执行
 "$PY" "$C" --host workbuddy status      # 看折旧表：skill | 指纹 | 基线通过率 | risk | golden | 状态
 "$PY" "$C" --host workbuddy recommend   # 推荐/淘汰面板（强/观察/未验证/降级淘汰/精简候选/建议新增）
 "$PY" "$C" --host workbuddy check       # 检测模型版本是否变更；变了 -> 提示重跑回归三步
+"$PY" "$C" --host deepseek probe       # 运行时证据：读宿主日志，找「装得像、跑不起来」的插件
 "$PY" "$C" --host workbuddy suggest --need "<对话里的需求>"   # 无匹配 skill 时按需求推荐安装项
 "$PY" "$C" discover --write                  # 自动探测本机宿主并写回 hosts.json
 "$PY" "$C" --host <h> bootstrap              # 从本地历史生成 golden 草稿

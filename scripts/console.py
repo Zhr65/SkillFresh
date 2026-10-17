@@ -29,6 +29,7 @@ import sys
 import re
 import io
 import json
+import glob
 import shutil
 import hashlib
 import subprocess
@@ -112,7 +113,8 @@ HOST_PROFILES = {
     "workbuddy": {"kind": "skill", "label": "skill", "root": None, "manifests": ["SKILL.md"]},
     "claude-code": {"kind": "skill", "label": "skill", "root": "~/.claude/skills", "manifests": ["SKILL.md"]},
     "deepseek": {"kind": "plugin", "label": "插件", "root": "~/.dsh/profiles/desktop",
-                 "discover": "deps", "manifests": ["package.json", "plugin.json"]},
+                 "discover": "deps", "manifests": ["package.json", "plugin.json"],
+                 "logs": ["~/.dsh/logs/*.log"]},
     "generic": {"kind": "plugin", "label": "asset", "root": None,
                 "manifests": ["plugin.json", "manifest.json", "SKILL.md", "package.json"]},
 }
@@ -367,7 +369,12 @@ def load_hosts_config():
     cfg = load_json(HOSTS_CFG, {}) or {}
     merged = {"default_host": cfg.get("default_host", "workbuddy"),
               "hosts": dict(HOST_PROFILES)}
-    merged["hosts"].update(cfg.get("hosts", {}))
+    # 逐字段合并：hosts.json 里的条目覆盖同名字段，但继承内置默认（logs/discover 等）。
+    # 整个条目替换会让老 hosts.json 丢掉后来新增的字段 —— 表现为「明明配了却说没有」。
+    for h, p in (cfg.get("hosts") or {}).items():
+        base = dict(HOST_PROFILES.get(h, {}))
+        base.update(p or {})
+        merged["hosts"][h] = base
     return merged
 
 
@@ -714,6 +721,102 @@ def cmd_recommend(args):
 
     print("\n操作方式：告诉我『keep:名称 / watch:名称 / eval:名称 / prune:名称 / install:名称』，我按你的选择执行（淘汰与安装均先确认）。")
     return 0
+
+
+# ---------------------------------------------------------------- runtime evidence
+# 「运行时探针」有主动/被动两种，成本差两个数量级，别混为一谈：
+#   主动探针 = 我启动宿主、问它「你到底注册了哪些工具」。DSH 的 desktop profile 被 Electron
+#              独占（`dsh --profile desktop --dump-config` 直接拒绝），没有 headless 入口 →
+#              要逆向 IPC 或驱动 UI。贵、脆，且和用户正在用的实例抢资源。
+#   被动证据 = 读宿主**自己打的日志**，找出「文件齐全、manifest 正确、但跑起来报错」的插件。
+#              零启动、零端口、跨 desktop/web 都行；代价是有盲区（见 PROBE_BLIND_SPOTS）。
+# 这里实现的是后者。日志格式：`<iso> [level] [source] message`，source 为插件包名时可归因。
+PROBE_LINE_RE = re.compile(r"^(\d{4}-\d{2}-\d{2}T\S+)\s+\[(\w+)\]\s+\[([^\]]+)\]\s*(.*)$")
+PROBE_FAULT_RE = re.compile(
+    r"fail|error|enoent|exception|unavailable|missing|refus|denied|timeout|"
+    r"not found|threw|crash|invalid|cannot|unable", re.I)
+PROBE_MAX_BYTES = 4 * 1024 * 1024   # 单个日志只读尾部，日志可以很大
+PROBE_BLIND_SPOTS = (
+    "插件不写日志 → 看不见；日志轮转 → 旧故障消失；"
+    "从没被用过的插件没有证据；日志里的 info 级故障靠关键词识别，可能漏或误报"
+)
+
+
+def discover_logs(prof):
+    out = []
+    for pat in prof.get("logs") or []:
+        for p in sorted(glob.glob(os.path.expanduser(pat)), key=lambda x: -os.path.getmtime(x)):
+            out.append(p)
+    return out
+
+
+def read_tail(path, limit=PROBE_MAX_BYTES):
+    try:
+        size = os.path.getsize(path)
+        with open(path, "rb") as fh:
+            if size > limit:
+                fh.seek(size - limit)
+                fh.readline()  # 丢掉被截断的半行
+            return fh.read().decode("utf-8", "replace").splitlines()
+    except Exception:
+        return []
+
+
+def cmd_probe(args):
+    host, prof = resolve_host(args)
+    reg = load_registry(host)
+    if not reg:
+        print(f"[err] registry.{host}.json missing — run `--host {host} scan` first")
+        return 1
+    logs = discover_logs(prof)
+    if not logs:
+        print(f"[warn] 宿主 {host} 没有配置可读日志（hosts.json 里的 \"logs\"），无法采集运行时证据。")
+        print("       这不是「没问题」，是「没有证据」。主动探针需要启动宿主，本工具不做。")
+        return 1
+
+    names = set(reg_assets(reg).keys())
+    hits = {}       # asset -> [{ts, level, msg, fault, log}]
+    total_lines = 0
+    for path in logs:
+        for line in read_tail(path):
+            total_lines += 1
+            m = PROBE_LINE_RE.match(line)
+            if not m:
+                continue
+            ts, level, source, msg = m.group(1), m.group(2), m.group(3), m.group(4)
+            if source not in names:
+                continue
+            fault = bool(PROBE_FAULT_RE.search(msg)) or level.lower() in ("error", "fatal")
+            hits.setdefault(source, []).append({
+                "ts": ts, "level": level, "msg": msg.strip(),
+                "fault": fault, "log": os.path.basename(path),
+            })
+
+    print(f"\n══════════ 运行时证据 · {host} · {prof['label']} ══════════")
+    print(f"日志: {', '.join(os.path.dirname(p) for p in logs[:1])}  "
+          f"（{len(logs)} 个文件，{total_lines} 行）")
+    print("只读采集，不启动宿主。")
+    bad = []
+    for name in sorted(names):
+        rows = hits.get(name) or []
+        faults = [r for r in rows if r["fault"]]
+        if faults:
+            bad.append((name, faults))
+    if not bad:
+        print(f"\n✓ 日志里没有可归因到 {len(names)} 个资产的故障迹象。")
+        print(f"  （不代表没问题 —— {PROBE_BLIND_SPOTS}）")
+        return 0
+
+    print(f"\n⚠ {len(bad)} 个资产有运行时故障迹象（文件齐全、manifest 正确，但跑起来报错）：")
+    for name, faults in bad:
+        last = faults[-1]
+        print(f"\n  {name}")
+        print(f"    {len(faults)} 条故障迹象  最近 {last['ts']}  [{last['level']}]")
+        print(f"      {last['msg'][:160]}")
+        print(f"      → 静态扫描（文件/manifest/能力面）看不见这类问题；这是宿主自己打出来的")
+    print(f"\n盲区：{PROBE_BLIND_SPOTS}")
+    print("要「实际注册了哪些工具」，得启动宿主 —— desktop profile 被 Electron 独占，本工具不做。")
+    return 1 if getattr(args, "strict", False) else 0
 
 
 def gap_analysis(reg):
@@ -1088,6 +1191,9 @@ def build_parser():
     b = sub.add_parser("bump")
     b.add_argument("version", nargs="?", default=None)
     sub.add_parser("recommend")
+    pb = sub.add_parser("probe")
+    pb.add_argument("--strict", action="store_true",
+                    help="有运行时故障迹象时以退出码 1 结束（给 CI/脚本用）")
     rp = sub.add_parser("report")
     rp.add_argument("--results", default=BASELINE)
     rp.add_argument("--threshold", type=int, default=20)
@@ -1114,6 +1220,7 @@ def main():
     table = {
         "hosts": cmd_hosts, "setup": cmd_setup, "scan": cmd_scan, "status": cmd_status,
         "check": cmd_check, "bump": cmd_bump, "recommend": cmd_recommend,
+        "probe": cmd_probe,
         "report": cmd_report, "suggest": cmd_suggest,
         "discover": cmd_discover, "bootstrap": cmd_bootstrap, "onboard": cmd_onboard,
     }

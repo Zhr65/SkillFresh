@@ -103,7 +103,39 @@ When it changes, `scan` prints it explicitly:
 
 **Why this matters for plugins:** a plugin degrades by *not registering its tools / 404-ing its routes / not running its hooks* — not by "answering worse". A golden set of prompts measures the wrong thing for a plugin. The surface diff catches "v1.1.0 dropped an entry point" without needing to boot the host.
 
-**Known boundary (do not paper over it):** there is **no runtime probe** yet. `scan` reads files and manifests; it does not boot the host and assert "these tools are actually registered". So the surface is *declared* capability, not *observed* capability. For a plugin whose manifest lies (declares a patch that fails to load), this cannot catch it — that needs a probe that starts the host and lists registered tools.
+**Known boundary (do not paper over it):** the surface is *declared* capability, not *observed* capability. For a plugin whose manifest lies (declares a patch that fails to load), this cannot catch it.
+
+## Runtime Evidence (the third axis, and what it cannot do)
+
+There are two very different things called "a runtime probe". Do not conflate them:
+
+| | 主动探针 (active probe) | 被动证据 (passive evidence) — **implemented** |
+|---|---|---|
+| what it does | boot the host, ask "which tools did you actually register" | read the log the host already writes |
+| cost | DSH `desktop` profile is Electron-exclusive — `dsh --profile desktop --dump-config` is refused; no headless entry → reverse-engineer IPC or drive the UI | one file read, ~10 ms |
+| catches | everything, including a plugin whose manifest lies | anything the plugin *logged* |
+| status | **not built** | `console.py probe` / `skill_audit_probe` |
+
+`probe` reads `~/.dsh/logs/*.log` (configurable per host via `"logs"` in `hosts.json`), parses
+`<iso> [level] [source] message`, attributes lines whose `source` equals an installed asset name, and
+flags lines matching failure vocabulary (`fail|error|ENOENT|unavailable|timeout|…`).
+
+Real catch, on this machine:
+
+```
+@wxg-prc-cpg/browser-skill-dsh-plugin   2 条故障迹象
+  bsk probe failed (spawn bsk ENOENT); browser tools will report install guidance…
+```
+
+Files present, manifest valid, `caps=4` — every static check passes. The plugin is loaded and its tools
+are registered, but they cannot work: the `bsk` CLI it shells out to is not on PATH. **No amount of
+file hashing finds this.**
+
+**Blind spots (state them, never hide them):** a plugin that logs nothing is invisible; log rotation
+erases old faults; a plugin nobody has used has no evidence; `info`-level faults are caught by keyword
+matching, so both misses and false positives are possible. **Absence of evidence is not evidence of
+health** — `probe` prints that sentence itself rather than a green check.
+
 
 
 ## Judgment 1 — Capability Degradation

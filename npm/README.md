@@ -97,17 +97,35 @@ python scripts/baseline.py --golden golden/<资产名>.json --out results/ --mod
 
 ---
 
-## 五个工具
+## 六个工具
 
 | 工具 | 干什么 | 会写文件吗 |
 |---|---|---|
-| `skill_audit_status` | 折旧表：指纹 / 基线通过率 / risk / golden / 判定 | 否（注册表缺失时会先自动 scan） |
+| `skill_audit_status` | 折旧表：指纹 / 基线通过率 / risk / caps / golden / 判定 | 否（注册表缺失时会先自动 scan） |
 | `skill_audit_recommend` | 强 / 观察 / 未验证 / 已降级 / 可选精简 五档 + 建议新增 | 否 |
 | `skill_audit_check` | 当前模型相对上次回归基线变了吗 | 否 |
-| `skill_audit_scan` | 重新发现资产，写 `registry.<host>.json` | 是（只写注册表） |
+| `skill_audit_scan` | 重新发现资产，写 `registry.<host>.json`，并 diff 能力面 | 是（只写注册表） |
+| `skill_audit_probe` | **运行时证据**：读宿主日志，找出「装得像、跑不起来」的插件 | 否 |
 | `skill_audit_suggest` | 需求没有资产覆盖时，该补什么 + 搜索词 | 否 |
 
 默认审计对象是 DSH 的**插件**（`--host deepseek`）。审 skill 传 `host: "workbuddy"` / `"claude-code"` / `"agents"`；审任意目录传 `host: "generic"` + `root: "<路径>"`。
+
+### 为什么插件要单独一个 probe
+
+插件退化不是「回答变差」，而是**工具没注册 / 路由 404 / 依赖 CLI 缺失**。这类故障里，文件齐全、`package.json` 正确、能力面（caps）也正常 —— 静态扫描永远看不见。
+
+`probe` 读宿主自己打的日志（`~/.dsh/logs/*.log`），按包名归因，抓的是**实际发生的**而不是**声明的**：
+
+```
+⚠ 1 个资产有运行时故障迹象（文件齐全、manifest 正确，但跑起来报错）：
+  @wxg-prc-cpg/browser-skill-dsh-plugin
+    2 条故障迹象  最近 2026-10-17T13:51:58Z  [info]
+      bsk probe failed (spawn bsk ENOENT); browser tools will report install guidance…
+```
+
+**盲区（明说）**：插件不写日志就看不见；日志轮转后旧故障消失；从没被用过的插件没有证据；`info` 级故障靠关键词识别，可能漏也可能误报。**没有证据 ≠ 没问题。**
+
+真正要「宿主实际注册了哪些工具」得启动宿主 —— DSH 的 `desktop` profile 被 Electron 独占（`dsh --profile desktop --dump-config` 直接拒绝），没有 headless 入口，所以没做。
 
 ---
 

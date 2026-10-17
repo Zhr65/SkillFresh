@@ -126,6 +126,21 @@ const TOOLS = [
     },
   ),
   tool(
+    'skill_audit_probe',
+    '运行时证据：读宿主自己打的日志，找出「文件齐全、manifest 正确、但跑起来报错」的插件（例如依赖的 CLI 缺失、路由起不来）。只读，不启动宿主。静态扫描看不见这类问题——能力面是「声明的」，日志是「实际发生的」。有盲区：插件不写日志就看不见。',
+    { host: HOST_PARAM },
+    [],
+    async (args) => {
+      const argv = buildArgv('probe', args)
+      const res = await runConsole(argv, { timeout: 60000 })
+      // probe 默认退出码 0；只有 --strict 才非零。非零时也要把正文给出去。
+      if (res.code !== 0 && /registry\.[\w.-]+\.json missing/.test(`${res.stdout}${res.stderr}`)) {
+        return runWithAutoScan('probe', args, [], { timeout: 60000 })
+      }
+      return clean(`${res.stdout}${res.stderr}`) || formatFailure(res, '运行时证据采集')
+    },
+  ),
+  tool(
     'skill_audit_suggest',
     '需求匹配：当用户当前的活儿没有任何已装 skill/插件能覆盖时，用一句话描述需求，返回该不该新增、新增什么、以及搜索词。先查已装注册表（避免重复装），查不到才落到分类表。',
     {

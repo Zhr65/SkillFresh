@@ -93,7 +93,7 @@ try {
     tools: { register: (t) => reg.push(t) },
   }
   mod.apply(ctx)
-  ok(reg.length === 5, `从安装位置注册 5 个工具（实际 ${reg.length}）`)
+  ok(reg.length === 6, `从安装位置注册 6 个工具（实际 ${reg.length}）`)
 
   const status = reg.find((t) => t.name === 'skill_audit_status')
   const out = await status.execute({ host: 'deepseek' }, {})
