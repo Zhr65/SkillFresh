@@ -2,6 +2,28 @@
 
 版本号跟 npm `latest` 对齐：`npm view dsh-skill-auditor version` 是权威，市场目录里写的版本不作数。
 
+## 未发布 — 2026-10-17
+
+（0.4.1 尚未发布过 npm，以下改动会随首个发布版本出去；发布时并入对应版本节）
+
+### 新增：github 安装通道
+
+- `engine/` **入库**（原在 .gitignore，靠 prepack 生成）。原因：DSH 市场的 github 安装通道
+  （目录条目 `installSource.kind = "github"` + 固定 40 位 commit）拿到的就是仓库里这一份，
+  没有 prepack 会替你跑 —— 忽略它，那条通道装出来的包没有引擎，一调用就失败
+- 新增 `npm run check:engine`：重建 `engine/` 后与 git HEAD 比对，拦「改了上游脚本没提交 engine/」。
+  不拦的后果：npm 通道装新引擎、github 通道装旧引擎，同一个版本号两种行为
+- `engine-manifest.json` 去掉 `built_at` 时间戳：清单必须可复现，否则每次 sync 都产生 diff，
+  check 就永远报「不同步」。溯源靠 version + 逐文件 sha256
+- `package.json` 补 `repository` / `homepage` / `bugs`（npm 页面与 github 通道都用得上）
+
+### 实测（发布材料，见根目录 PUBLISH.md）
+
+- DSH 目录条目通过市场自己的 `parseCatalogProviderPage`（第一版被拒：description 里有换行，
+  `plainText` 禁 U+0000–U+001F，换行也算 —— 所以校验用市场那份实现，不复写规则）
+- github 来源通过市场自己的 `createGitHubPackageVerifier`（真网络取固定 commit 的 package.json）
+- `pnpm add "github:Zhr65/SkillFresh#<sha>&path:/npm"` 装出 0.4.1，6 工具注册，引擎随包落地
+
 ## 0.4.1 — 2026-10-17
 
 ### 修正：指纹口径 v2（`v2-ability-surface`）

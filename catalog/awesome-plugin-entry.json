@@ -1,0 +1,12 @@
+{
+  "$schema": "../schema/plugin.schema.json",
+  "id": "Zhr65/SkillFresh/npm",
+  "name": "dsh-skill-auditor",
+  "repository": "https://github.com/Zhr65/SkillFresh",
+  "category": "tools",
+  "description": {
+    "en": "Audits installed skills and plugins against the current model. Each asset gets a capability fingerprint computed only over its capability surface (code and declared tools/commands/dependencies, not README or images), then a golden set is replayed to build a pass-rate matrix. A drop counts as model degradation only when the fingerprint is unchanged; an unchanged pass rate with a changed fingerprint is reported as the asset itself having been edited. Registers six tools: status, recommend, check, scan, probe and suggest. Runs locally, makes no network calls, and needs Python 3.8+.",
+    "zh": "对已安装的 skill 和插件做面向当前模型的回归体检。每个资产有一个能力指纹，只对能力面（代码与 manifest 声明的工具/命令/依赖）取哈希，不含 README 与图片；再用 golden set 回放得出通过率矩阵。指纹未变而通过率下降才判为模型退化，指纹变了而通过率未变则归因为资产被改过。注册 6 个工具：status、recommend、check、scan、probe、suggest。全部判定在本机完成，不联网，需要本机 Python 3.8+。"
+  },
+  "added": "2026-10-17"
+}

@@ -112,6 +112,13 @@ DSH **有内置插件市场**（`dsh-community-market`），路径：**设置 �
 
 同一时间只启用一个。任何人都可以按 `catalog-source` / `catalog-provider-page` schema 发布自己的来源。
 
+> 两条通道的差别（源码核实，`PUBLISH.md §2.1` 有细节）：
+> 1024Store 适配器只产出 `package: {registry: 'npm'}`，从不产出 `installSource` ——
+> 所以**内置市场**一键安装只认 npm；但安装服务本身支持
+> `installSource.kind: "github"` + 固定 40 位 commit（`lib/install/github.js`），
+> 自建目录来源走这条路**不需要 npm**。
+> 本条目两种形态都已备好（`catalog/`），且都用市场自己的校验器验过。
+
 ---
 
 ## 4. 让别人的 agent 用上：三种分发强度
@@ -132,13 +139,18 @@ npm/
 │                         # "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
 ├── cordis.patch.yml      # - insert: [{ id: skill-auditor, name: dsh-skill-auditor }]
 ├── plugin.json           # skills: ./skill（宿主能把它当 skill 加载）
-├── lib/index.js          # 插件入口：注册 5 个 skill_audit_* 工具
+├── lib/index.js          # 插件入口：注册 6 个 skill_audit_* 工具
 ├── lib/engine.mjs        # 引擎定位 / Python 探测 / 用户数据目录
 ├── skill/SKILL.md        # 插件内自带 skill（hindsight 同款做法）
-├── engine/               # 生成的：上游引擎副本（prepack 时同步）
-├── scripts/sync-engine.mjs  # 白名单复制 + 路径脱敏 + 禁用词扫描
+├── engine/               # 入库的上游引擎副本（check:engine 防漂移）
+├── scripts/sync-engine.mjs   # 白名单复制 + 路径脱敏 + 禁用词扫描
+├── scripts/check-engine.mjs  # 重建 engine/ → 与 HEAD 比对，拦「两通道不同行为」
 └── test/{smoke,tarball}.mjs # 冒烟 + 打包→安装→运行 全链路
 ```
+
+> `engine/` **入库**，不在 .gitignore：DSH 市场的 github 安装通道拿到的就是
+> 仓库里这一份，没有 prepack 会替你跑。忽略它 → 那条通道装出来的包没有引擎。
+> 改上游脚本后必须 `npm run sync` 并提交，`npm run check:engine` 会拦。
 
 **四个市场准入条件，逐条对上：**
 
@@ -155,19 +167,22 @@ npm/
 - `npm install <tgz>` 到干净目录 → 从安装位置 import → 注册 5 个工具 → 真跑引擎出折旧表（3 个真实插件）
 - `prepack` 自动同步引擎，且**路径脱敏**（本机 Python 路径 → `python`）+ 禁用词扫描（命中即发布失败）
 
-**发布三步：**
+**发布三步（详细版含 2FA、版本四处同步、固定动作清单 → 见 `PUBLISH.md`）：**
 
 ```bash
 cd npm
-npm run test          # 冒烟 + 全链路（当前 36 项全过）
-npm publish           # 需要 npm 账号；首次发布前确认 2FA
+npm run check:engine   # 引擎与上游一致（github 通道与 npm 通道不发生分歧）
+npm run test           # 冒烟 + 全链路（当前 44 项全过）
+npm publish            # 需要 npm 账号；2FA 用 --otp
 ```
 
 ```bash
-# 然后给目录来源提 PR（二选一）
-#   · awesome-deepseek-harness-plugins（dsh-community-market 的数据源）
-#   · awesome-dsh-plugin（dsh-market 的数据源）
-# 条目只需要：name=dsh-skill-auditor + 一句话描述 + 仓库/主页链接
+# 然后给目录来源提 PR：
+#   · awesome-deepseek-harness-plugins（1024Store 内置市场的数据源）
+#     条目是 catalog/plugins/ 下的一个 JSON 文件，内容已备好：
+#     catalog/awesome-plugin-entry.json（文件名 zhr65--skillfresh--npm.json）
+#   · 或自建 catalog source（不需要 npm，用 github 固定 commit）
+# 两条路的取舍与已验证据见 PUBLISH.md §2
 ```
 
 ```bash
@@ -227,10 +242,13 @@ cat ~/.dsh/skill-auditor/.engine.json     # 本机
 - [x] npm 包骨架（`npm/`，pack → install → run 全链路已验证）
 - [x] 插件冒烟测试（44 项断言，`npm run test`）
 - [x] SkillHub `_meta.json`（照本机市场安装的真实样例补：`slug/title/version/author/runtime/emoji/color/tags/description_zh/description_en/category`，`category` 取自市场 API 实际枚举 `ai-agent`）
-- [ ] `npm publish`（要你的 npm 账号）
-- [ ] 目录来源 PR（awesome-deepseek-harness-plugins / awesome-dsh-plugin）
-- [ ] WorkBuddy SkillHub 提交（`_meta.json` 已就绪，走市场发布流程）
-- [x] git 仓库（5 次提交，零个人数据；**已推送到 https://github.com/Zhr65/SkillFresh**）
+- [ ] `npm publish`（要你的 npm 账号；命令与注意事项 → `PUBLISH.md §1`）
+- [ ] 目录来源 PR（条目已按对方 schema 写好并逐字段验过 → `catalog/awesome-plugin-entry.json`；步骤与 PR 文案 → `PUBLISH.md §2.3`）
+- [ ] WorkBuddy SkillHub 提交（`_meta.json` 已就绪，缺的是站点提交入口确认 → `PUBLISH.md §3`）
+- [x] DSH 目录条目（两种通道形态都备好，均通过市场自己的校验器：`catalog/`）
+- [x] github 安装通道实测（pnpm 从固定 commit 装 `path:/npm` → 6 工具注册 → 引擎随包落地）
+- [x] `engine/` 入库 + `check:engine` 防漂移（npm 通道与 github 通道不发生版本分歧）
+- [x] git 仓库（7 次提交，零个人数据；**已推送到 https://github.com/Zhr65/SkillFresh**）
 - [x] 30 秒演示（`demo.py`：沙盒 7 步真跑引擎，约 13 秒；**远端 clone 实测通过**）
 
 ### 仓库已上线

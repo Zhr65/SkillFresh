@@ -1,0 +1,20 @@
+{
+  "manifestVersion": "1.0.0",
+  "providerId": "io.github.zhr65.skillfresh",
+  "name": "SkillFresh",
+  "attribution": {
+    "name": "Zhr65",
+    "url": "https://github.com/Zhr65/SkillFresh"
+  },
+  "transport": {
+    "kind": "https-json",
+    "endpoint": "https://skillfresh.example.org/v1/plugins",
+    "method": "GET"
+  },
+  "query": {
+    "supported": ["q", "category", "cursor", "limit"],
+    "defaultLimit": 50,
+    "maxLimit": 50,
+    "sorts": []
+  }
+}
