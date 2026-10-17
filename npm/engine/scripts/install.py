@@ -19,16 +19,23 @@ Link vs copy:
   link  -> edits here apply everywhere immediately (best while iterating)
   copy  -> each host gets an independent snapshot (best for a stable release)
 
+Personal data (registry.*, baseline, model-version, hosts.json, filled golden sets,
+replay logs) is NEVER copied: a copy is a code snapshot, not a data migration.
+Old snapshots are reported as stale instead of being silently treated as "installed".
+
 On Windows, directory symlinks need Developer Mode or admin; the script falls back
-to a junction (mklink /J) and then to a copy, telling you which it used.
+to a copy, telling you which it used.
 """
 import os
+import re
 import sys
 import shutil
 import argparse
 
 HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))   # .../skill-auditor
 NAME = os.path.basename(HERE)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from console import OK_MARK, FAIL_MARK  # noqa: E402
 
 HOSTS = [
     ("workbuddy-ai", "~/.workbuddy-ai/skills", "WorkBuddy Agent（本会话实际加载的目录）"),
@@ -39,33 +46,62 @@ HOSTS = [
     ("codex",        "~/.codex/skills",        "OpenAI Codex CLI"),
 ]
 
+# 复制时排除的东西：构建产物 + **个人数据**。golden/_template.json 会被单独补回。
+IGNORE = shutil.ignore_patterns(
+    "dist", "_archive", "__pycache__", ".git", "*.pyc",
+    "registry*.json", "baseline-results.json", "baseline-scaffold.json",
+    "model-version*.json", "recorded-*.json", "hosts.json",
+    "depreciation-report.*", "fingerprint-report.*", "replay", "demo",
+    "golden/*.json",
+)
+
 
 def expand(p):
     return os.path.abspath(os.path.expanduser(p))
 
 
-def link_dir(src, dst):
+def read_version(path):
+    try:
+        with open(os.path.join(path, "SKILL.md"), encoding="utf-8-sig") as fh:
+            m = re.search(r"^version:\s*(\S+)", fh.read(), re.M)
+        return m.group(1).strip('"\'') if m else ""
+    except Exception:
+        return ""
+
+
+def ensure_template(dst):
+    src = os.path.join(HERE, "golden", "_template.json")
+    target = os.path.join(dst, "golden", "_template.json")
+    if os.path.isfile(src) and not os.path.exists(target):
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        shutil.copy2(src, target)
+
+
+def link_dir(src, dst, copy_only=False):
     """Install src at dst and VERIFY it. Returns 'symlink' or 'copy'.
 
     A failed link attempt must never leave an empty directory behind: that looks
     installed to every host but contains nothing. Verify by reading SKILL.md
     through the new path, and fall back to a real copy if linking didn't work.
     """
-    try:
-        os.symlink(src, dst, target_is_directory=True)
-        if os.path.isfile(os.path.join(dst, "SKILL.md")):
-            return "symlink"
-        # created, but unusable — undo before falling back
-        if os.path.islink(dst):
-            os.unlink(dst)
-        else:
-            shutil.rmtree(dst, ignore_errors=True)
-    except (OSError, NotImplementedError, AttributeError):
-        if os.path.isdir(dst) and not os.listdir(dst):
-            os.rmdir(dst)          # leftover shell from a failed attempt
+    if not copy_only:
+        try:
+            os.symlink(src, dst, target_is_directory=True)
+            if os.path.isfile(os.path.join(dst, "SKILL.md")):
+                return "symlink"
+            # created, but unusable — undo before falling back
+            if os.path.islink(dst):
+                os.unlink(dst)
+            else:
+                shutil.rmtree(dst, ignore_errors=True)
+        except (OSError, NotImplementedError, AttributeError):
+            if os.path.isdir(dst) and not os.path.islink(dst) and not os.listdir(dst):
+                os.rmdir(dst)          # leftover shell from a failed attempt
 
-    shutil.copytree(src, dst, ignore=shutil.ignore_patterns(
-        "dist", "_archive", "__pycache__", ".git", "*.pyc"))
+    if os.path.exists(dst):
+        shutil.rmtree(dst)
+    shutil.copytree(src, dst, ignore=IGNORE)
+    ensure_template(dst)
     if not os.path.isfile(os.path.join(dst, "SKILL.md")):
         raise RuntimeError(f"installed to {dst} but SKILL.md is not readable there")
     return "copy"
@@ -95,6 +131,9 @@ def install_one(name, path, desc, args):
             if not args.dry_run:
                 os.rmdir(dst)
         elif is_ours(dst) and not args.force:
+            src_v, dst_v = read_version(HERE), read_version(dst)
+            if src_v and dst_v and src_v != dst_v:
+                return name, "stale", f"已安装 {dst_v}，源是 {src_v}；加 --force 升级"
             return name, "ok", "已安装，跳过"
         elif not args.force:
             return name, "skip", f"目标已存在且不是本 skill：{dst}（加 --force 覆盖）"
@@ -110,16 +149,14 @@ def install_one(name, path, desc, args):
         return name, "dry", f"将安装到 {dst}"
 
     try:
-        method = "copy" if args.copy else link_dir(HERE, dst)
+        method = link_dir(HERE, dst, copy_only=args.copy)
     except Exception as e:                                    # noqa: BLE001
         return name, "err", f"安装失败：{e}"
 
     if method == "symlink":
         note = f"符号链接 → {dst}（改源目录即时生效）"
-    elif args.copy:
-        note = f"复制 → {dst}"
     else:
-        note = f"复制 → {dst}（此系统不支持符号链接，改动需重跑 install）"
+        note = f"复制 → {dst}（code snapshot；个人数据未复制，改动需重跑 install）"
     return name, "ok", note
 
 
@@ -157,7 +194,7 @@ def main():
         print(f"      known: {', '.join(sorted(known))}")
         return 2
 
-    print(f"skill      : {NAME}")
+    print(f"skill      : {NAME} {read_version(HERE)}")
     print(f"source     : {HERE}")
     print(f"mode       : {'uninstall' if args.uninstall else ('copy' if args.copy else 'link')}"
           f"{' (dry-run)' if args.dry_run else ''}\n")
@@ -173,12 +210,15 @@ def main():
 
     w = max(len(r[0]) for r in rows) + 2
     for name, status, msg in rows:
-        mark = {"ok": "✓", "skip": "-", "dry": "·", "err": "✗"}.get(status, "?")
+        mark = {"ok": OK_MARK, "skip": "-", "dry": ".", "stale": "!", "err": FAIL_MARK}.get(status, "?")
         print(f"  {mark} {name:<{w}}{msg}")
 
     ok = sum(1 for r in rows if r[1] == "ok")
+    stale = [r[0] for r in rows if r[1] == "stale"]
     print(f"\n{ok}/{len(rows)} 完成。验证：")
     print(f"  python {os.path.join(HERE, 'scripts', 'console.py')} hosts")
+    if stale:
+        print(f"  需要升级：{', '.join(stale)} —— 加 --force 重跑即可覆盖代码（个人数据不受影响）")
     return 0
 
 

@@ -1,7 +1,7 @@
 ---
 name: skill-auditor
 description: "Use when evaluating a skill OR plugin's lifecycle across agents: detecting capability degradation after a model update, judging whether a new skill/plugin is effective and fits the user, or auditing whether to keep/rewrite/retire one. Works in WorkBuddy (skills), DeepSeek harness (plugins), and other hosts via adapters. Triggers: '评测这个 skill', '评测这个插件', '模型升级后 skill 还灵不灵', '新 skill 好不好用', '这个 skill 适合我吗', 'deepseek 插件好不好用', '跨 agent 评估能力', '做个 skill 并按评测流程走'."
-version: 0.4.1
+version: 0.5.0
 allowed-tools:
   - Read
   - Write
@@ -27,11 +27,12 @@ This skill is the **evaluation methodology**. It answers three questions:
 2. **Is a new skill actually good?** — effectiveness vs cost.
 3. **Does a skill fit THIS user?** — trigger accuracy + environment + style.
 
-It ships three executable entry points:
+It ships five executable entry points:
 - `scripts/console.py` — the **resident console** (data layer): maintains `registry.<host>.json` per host, detects model-version changes (`bump`/`check`), and emits the recommend/eliminate panel. See `USAGE.md` for the full command set.
-- `scripts/regress.py` — given golden-set replay results, compute the pass-rate matrix, flag degradation, and flag `FINGERPRINT-DRIFT` when an asset was edited instead.
-- `scripts/fingerprint.py` — standalone report CLI; a thin wrapper over the same hashing code `scan` uses (one implementation, so the two can't drift apart).
-- `scripts/install.py` — install this skill into every agent host on the machine (`~/.workbuddy-ai/skills`, `~/.claude/skills`, `~/.agents/skills`, `~/.dsh/skills`, `~/.codex/skills`). Verifies after installing; never leaves an empty directory behind.
+- `scripts/regress.py` — given golden-set replay results, compute the pass-rate matrix, flag degradation (threshold + direction), and flag `FINGERPRINT-DRIFT` when an asset was edited instead.
+- `scripts/baseline.py` — scaffold a replay checklist, then merge recorded verdicts into `baseline-results.json` (by asset; `--replace` for a full overwrite). Draft golden cases are skipped unless `--allow-draft`.
+- `scripts/fingerprint.py` — standalone **report** CLI; a thin wrapper over the same hashing code `scan` uses. It writes `fingerprint-report.*` only; it does **not** write the registry.
+- `scripts/install.py` — install this skill into every agent host on the machine (`~/.workbuddy-ai/skills`, `~/.claude/skills`, `~/.agents/skills`, `~/.dsh/skills`, `~/.codex/skills`). Verifies after installing; never leaves an empty directory behind; never copies personal data.
 
 **Core principle: No measurement without a baseline. Degradation = significant pass-rate drop under an *unchanged* fingerprint — never "feels dumber".**
 
@@ -82,7 +83,7 @@ Rules:
 - **Fingerprint unchanged ⇒ the row persists; a pass-rate drop is model regression.**
 - **Fingerprint changed ⇒ the change is the skill's own responsibility, not the model's.** Old and new rows coexist, so skill edits are never mis-attributed to model drift.
 
-Run `bash scripts/fingerprint.py <skills_dir>` to compute all fingerprints and store them in the registry (see Artifacts).
+Run `python scripts/console.py scan` to compute fingerprints and store them in the registry. `fingerprint.py` is a standalone report wrapper; it does not touch the registry.
 
 ## Capability Surface (why plugins need a second axis)
 
@@ -135,6 +136,25 @@ file hashing finds this.**
 erases old faults; a plugin nobody has used has no evidence; `info`-level faults are caught by keyword
 matching, so both misses and false positives are possible. **Absence of evidence is not evidence of
 health** — `probe` prints that sentence itself rather than a green check.
+
+## Implemented vs Methodology-Only (do not blur this line)
+
+The methodology below is broader than the code. Users should know which half they are holding:
+
+| Area | Status |
+|---|---|
+| Fingerprint over the capability surface, `scan`/`status`, capability diff | **implemented** |
+| Golden scaffold + baseline ingest (merge by asset, draft guard) | **implemented** (`baseline.py`) |
+| Pass-rate matrix, ≥20pp threshold **+ direction**, `FINGERPRINT-DRIFT` | **implemented** (`regress.py`) |
+| Model-change detection (`bump`/`check`), per-host stamps | **implemented — but the event source is manual**; a scheduled `check` stays green until someone bumps |
+| Recommend/eliminate panel, need suggestion, history-mined drafts | **implemented** (heuristic; suggestions are not evidence) |
+| Runtime evidence from host logs | **implemented** (passive; only what the plugin logged) |
+| Ablation, shadow-mode adoption rate, net-value / token telemetry | **methodology only — no code** |
+| Trigger precision/recall, environment reconciliation, style baseline | **methodology only — no code** |
+| K≥3 replays, LLM-judge cross-validation | **not implemented**; current verdicts are K=1 self-assessment |
+| `risk` column | maintenance-surface proxy — **not value** |
+
+If a claim in this file cannot be traced to a row marked "implemented", treat it as advice for the human running the audit, not as something the tool will do for them.
 
 
 
@@ -205,9 +225,12 @@ Registry stores: skill path, fingerprint, version, golden-set location, model-ve
 
 ## Tools
 
-- `bash scripts/fingerprint.py <skills_dir>` → emits `fingerprint-report.json` + a ranked MVP-candidate list (risk heuristic, pending real usage telemetry).
-- `bash scripts/regress.py --results <results.json> [--compare <model>]` → emits the pass-rate matrix, degradation flags, and `FINGERPRINT-DRIFT` rows. `--compare` is required when the results file holds more than two models.
-- `python scripts/console.py --host <workbuddy|claude-code|deepseek|agents|generic> {hosts|discover|setup|scan|status|check|bump|recommend|report|suggest|bootstrap|onboard}` → the host-agnostic resident console. `discover` auto-finds host roots; `bootstrap` drafts golden sets from the user's own history; `onboard` chains discover+scan+bootstrap. See `USAGE.md`.
+- `python scripts/fingerprint.py <assets_dir> [--out <dir>]` → emits `fingerprint-report.json` + a ranked MVP-candidate list (risk heuristic, pending real usage telemetry). Report only; it does not write the registry. Output defaults to the skill root, not the scanned directory.
+- `python scripts/regress.py --results <results.json> [--compare <model>] [--out <dir>]` → emits the pass-rate matrix, degradation flags (threshold + no case improved), and `FINGERPRINT-DRIFT` rows. `--compare` is required when the results file holds more than two models.
+- `python scripts/baseline.py --golden <files...> [--from recorded.json] [--replace] [--allow-draft]` → scaffold a replay checklist, or merge recorded verdicts into the baseline **by asset** (other assets are kept and reported).
+- `python scripts/console.py --host <workbuddy|claude-code|deepseek|agents|generic> {hosts|discover|setup|scan|status|check|bump|recommend|report|probe|suggest|bootstrap|onboard}` → the host-agnostic resident console. `report --promote` merges a fresh replay into the baseline so the panel sees it; `probe` reads host logs; `discover` auto-finds host roots; `bootstrap` drafts golden sets from the user's own history; `onboard` chains discover+scan+bootstrap. `--out` relocates **all** data files. See `USAGE.md`.
+
+Model-change stamps are per host (`model-version.<host>.json`); the legacy single `model-version.json` is still read as a fallback. `scan` only counts baseline rows whose model equals the active stamp — after a model switch, un-rerun assets go back to `unverified` instead of showing a false green.
 
 ## Common Mistakes
 

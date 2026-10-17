@@ -20,8 +20,10 @@ AUDITOR = os.path.dirname(HERE)
 DIST_ROOT = os.path.join(AUDITOR, "dist")
 OUT = os.path.join(DIST_ROOT, "skill-auditor")
 
+# demo.py 必须带上：README 的「30 秒试一下」和 SkillHub 描述都指向它，
+# 从市场 zip 装的人要能跑。它只写自己的沙盒目录，不碰用户数据。
 SHIP_FILES = ["SKILL.md", "USAGE.md", "DISTRIBUTION.md", "README.md", "LICENSE",
-              ".gitignore", "hosts.example.json", "_meta.json"]
+              ".gitignore", "hosts.example.json", "_meta.json", "demo.py"]
 SHIP_SCRIPTS = ["console.py", "fingerprint.py", "regress.py", "baseline.py", "install.py", "build_dist.py"]
 GOLDEN_SHIP = ["README.md", "_template.json"]
 

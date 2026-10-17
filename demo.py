@@ -87,13 +87,24 @@ def c(text, key):
     return (C[key] + str(text) + C["x"]) if ON else str(text)
 
 
-def hr(ch="─", n=78):
+def glyph(ch, alt):
+    """GBK 控制台打印不了 ▌─═ 这类字符；按当前编码降级。"""
+    enc = getattr(sys.stdout, "encoding", None) or "ascii"
+    try:
+        ch.encode(enc)
+        return ch
+    except Exception:
+        return alt
+
+
+def hr(ch=None, n=78):
+    ch = ch or glyph("─", "-")
     print(c(ch * n, "dim"))
 
 
 def step(n, title):
     print()
-    print(c("▌ %d/7 " % n, "c") + c(title, "b"))
+    print(c(glyph("▌", "|") + " %d/7 " % n, "c") + c(title, "b"))
 
 
 def run_engine(args, quiet=True):
@@ -109,15 +120,34 @@ def run_engine(args, quiet=True):
     return p.returncode, out, err
 
 
+def engine(args, label, ok=(0,)):
+    """跑一步引擎；非预期退出码就停，而不是继续用一个坏状态往下演示。"""
+    rc, out, err = run_engine(args, quiet=False)
+    if rc not in ok:
+        print(c("  步骤失败：%s（exit %d）" % (label, rc), "r"))
+        sys.exit(1)
+    return out
+
+
 def write_json(path, obj):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", encoding="utf-8") as fh:
         json.dump(obj, fh, ensure_ascii=False, indent=2)
 
 
+def rmtree_or_die(path):
+    """删除沙盒；失败时给人话，而不是一个裸 PermissionError traceback。"""
+    try:
+        shutil.rmtree(path)
+    except OSError as e:
+        print(c("无法清理 %s：%s" % (path, e), "r"))
+        print("  可能是目录被占用或权限不足；先关掉占用它的程序，或手动删除该目录后重试。")
+        sys.exit(1)
+
+
 def build_sandbox():
     if os.path.isdir(SANDBOX):
-        shutil.rmtree(SANDBOX)
+        rmtree_or_die(SANDBOX)
     os.makedirs(os.path.join(ENGINE, "scripts"))
     os.makedirs(GOLDEN)
     os.makedirs(ASSETS)
@@ -183,7 +213,7 @@ def build_sandbox():
 def main():
     if "--clean" in sys.argv:
         if os.path.isdir(SANDBOX):
-            shutil.rmtree(SANDBOX)
+            rmtree_or_die(SANDBOX)
             print("[ok] 已删除 %s" % SANDBOX)
         else:
             print("[ok] 沙盒本来就不存在")
@@ -200,7 +230,7 @@ def main():
         print("   %-14s %3d 行  tools=%s" % (name, lines, ",".join(tools) or "-"))
 
     step(2, "scan：发现资产、算能力指纹")
-    rc, out, _ = run_engine(["--host", "demo", "scan"])
+    out = engine(["--host", "demo", "scan"], "scan")
     print("   " + c(out.strip().splitlines()[0] if out.strip() else "(no output)", "g"))
 
     step(3, "建基线：用 %s 跑一遍 golden，全过" % BASELINE_MODEL)
@@ -219,14 +249,14 @@ def main():
             })
     write_json(os.path.join(ENGINE, "baseline-results.json"),
                {"baseline_model": BASELINE_MODEL, "results": base_rows})
-    run_engine(["--host", "demo", "scan"])  # 重扫，把基线通过率贴到注册表上
-    print("   %s  %d 条用例全过 → 6 个资产都有基线" % (c("✓", "g"), len(base_rows)))
+    engine(["--host", "demo", "scan"], "scan（建基线后重扫）")
+    print("   %s  %d 条用例全过 → 6 个资产都有基线" % (c(glyph("✓", "OK"), "g"), len(base_rows)))
 
     step(4, "模型换代了：%s → %s" % (BASELINE_MODEL, NEW_MODEL))
-    run_engine(["--host", "demo", "bump", NEW_MODEL])
-    _rc, chk, _ = run_engine(["--host", "demo", "check"])
+    engine(["--host", "demo", "bump", NEW_MODEL], "bump")
+    chk = engine(["--host", "demo", "check"], "check", ok=(0, 2))
     for line in chk.strip().splitlines():
-        print("   " + c(line, "y" if "⚠" in line else "dim"))
+        print("   " + c(line, "y" if glyph("⚠", "!") in line else "dim"))
     print("   " + c("→ 工具不会替你宣布「退化」，先重跑再说。", "dim"))
 
     step(5, "用新模型重跑 golden，出折旧报告")
@@ -254,15 +284,12 @@ def main():
     results_path = os.path.join(SANDBOX, "results.json")
     write_json(results_path, results)
 
-    rc, rep, _ = run_engine(["--host", "demo", "report", "--results", results_path,
-                             "--compare", NEW_MODEL], quiet=False)
+    rep = engine(["--host", "demo", "report", "--results", results_path,
+                  "--compare", NEW_MODEL], "report")
     for line in rep.strip().splitlines():
         if line.startswith("[ok]"):
             continue
         print("   " + line)
-    if rc != 0:
-        print(c("   report 失败，退出码 %d" % rc, "r"))
-        return 1
     print()
     print("   " + c("repo-scan 出现两行不是重复：", "y")
           + "旧指纹在这一轮里消失了、新指纹又没有基线 —— 两行说的是同一件事：")
@@ -271,14 +298,14 @@ def main():
     step(6, "把新结果落成新基线（真实流程就是这样），再看折旧表")
     write_json(os.path.join(ENGINE, "baseline-results.json"),
                {"baseline_model": NEW_MODEL, "results": new_rows})
-    run_engine(["--host", "demo", "scan"])
-    _rc, st, _ = run_engine(["--host", "demo", "status"])
+    engine(["--host", "demo", "scan"], "scan（落新基线）")
+    st = engine(["--host", "demo", "status"], "status")
     for line in st.strip().splitlines():
         print("   " + line)
     print("   " + c("→ 基线换成新模型后，docx-writer 1/3、sql-review 2/3 才落进表里。", "dim"))
 
     step(7, "推荐/淘汰面板（recommend）")
-    _rc, rec, _ = run_engine(["--host", "demo", "recommend"])
+    rec = engine(["--host", "demo", "recommend"], "recommend")
     for line in rec.strip().splitlines():
         print("   " + line)
 

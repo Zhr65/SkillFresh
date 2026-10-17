@@ -2,9 +2,58 @@
 
 版本号跟 npm `latest` 对齐：`npm view dsh-skill-auditor version` 是权威，市场目录里写的版本不作数。
 
-## 未发布 — 2026-10-17
+## 0.5.0 — 2026-10-18
 
-（0.4.1 尚未发布过 npm，以下改动会随首个发布版本出去；发布时并入对应版本节）
+### 修正：三处会让结论说反话的状态错误（都有回归测试）
+
+- **升级闭环闭合**：`report` 默认只写报告、不改基线，文档却让人 `report → scan`，结果面板永远不变。
+  新增 `report --promote`：把本次 results 按资产合并进 `baseline-results.json`，再提示 `scan`。
+- **基线导入不再整体覆盖**：`baseline.py` 默认按资产合并（本次跑到的替换、没跑到的保留并打印），
+  `--replace` 才整体覆盖。以前只补一个 skill 会把其他资产的基线静默清空。
+- **旧模型基线不再冒充绿灯**：`scan` 只统计当前模型戳下的判定；换代后未重跑的资产回到 `unverified`，
+  并打印「N 条基线属于旧模型，未计入」。
+
+### 修正：判定口径
+
+- `regress.py` 的「方向一致」现在真的检查方向：降幅 ≥ 阈值且**没有任何用例变好**才算 DEGRADATION；
+  混有变好的用例降为 `volatility watch`。报告新增 `worse_cases/better_cases`。
+- 基线合并后 `baseline-results.json` 新增 `models` 列表与 `merged_at`。
+
+### 修正：Windows 中文控制台
+
+- `✓ ✗ ⚠ 🟢…` 在 GBK（cp936）控制台下会 `UnicodeEncodeError`，`hosts`/`recommend` 直接崩。
+  现在按 stdout 实际编码选择符号（UTF-8 保留原符号，GBK 降级为 `[ok]`/`●`/`*`），中文照常输出。
+- `--out` 现在对**所有**数据生效（registry / baseline / 模型戳 / golden）；以前只搬一半。
+- JSON 读取统一 `utf-8-sig`（Windows 记事本/PowerShell 的 BOM 不再炸）。
+- `run()` 子进程固定 UTF-8 解码，父进程设了 `PYTHONIOENCODING` 时不再乱码。
+
+### 修正：解析与建议
+
+- frontmatter 支持 `description: |` / `>` 块标量；以前 frontend-dev 的描述会变成字面量 `|`。
+- `gap_analysis` 改子串匹配：已有 `test-driven-development`/`verification-before-completion` 时
+  不再假报「缺评测类」。
+- `suggest` 名称匹配增加名称片段（`frontend-dev` 可被「做个前端页面」命中）。
+
+### 修正：模型戳与数据路径
+
+- `model-version.<host>.json`；`bump`/`check`/`setup` 都按宿主读写，旧 `model-version.json` 仅作 fallback。
+- `baseline.py` 默认 `--out` 改为 skill 根目录（以前写进 `scripts/`，`scan` 看不见）。
+- 新增 `--allow-draft`；draft 用例默认跳过。
+
+### 工程质量
+
+- 新增 `scripts/test_engine.py`（16 项，stdlib `unittest`）：指纹口径、块标量、基线合并、阈值/方向/漂移、
+  模型过滤、GBK 输出。不随包分发。
+- `demo.py` 每步检查退出码（以前报告以外的步骤失败也会继续）；符号按编码降级。
+- `install.py`：复制时排除个人数据；旧版本副本报 `stale` 而不是「已安装」；`--copy` 也做安装后校验。
+- `fingerprint.py` 默认输出改到 skill 根目录（不再往被扫描的宿主目录里写报告）。
+- 文档修正：入口数量、probe 缺失、golden 指纹过期、自检数字、安装命令、目录树、发布清单。
+
+### 已知未做（仍是边界）
+
+- 模型切换事件源仍手动；K=1 自评；插件仍无主动运行时探针；消融 / 采纳率 / 净收益仍只有方法论。
+
+## 0.4.1 的未发布内容（随 0.5.0 首发）
 
 ### 新增：github 安装通道
 

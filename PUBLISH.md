@@ -25,7 +25,7 @@ npm publish --dry-run          # 先看会传哪些文件（这一步就会跑 p
 npm publish                    # 若账号是 auth-only 2FA：npm publish --otp=123456
 ```
 
-期望输出末行：`+ dsh-skill-auditor@0.4.1`
+期望输出末行：`+ dsh-skill-auditor@0.5.0`
 
 `npm publish` 会触发 `prepack` → `scripts/sync-engine.mjs`，把上游引擎白名单复制进
 `engine/`、脱敏本机路径、扫禁用词。命中禁用词会**直接失败**，这是设计，不是 bug。
@@ -33,8 +33,8 @@ npm publish                    # 若账号是 auth-only 2FA：npm publish --otp=
 ### 1.2 发完立刻验三件事
 
 ```bash
-npm view dsh-skill-auditor version          # → 0.4.1
-npm view dsh-skill-auditor dist.tarball     # → https://registry.npmjs.org/.../-/dsh-skill-auditor-0.4.1.tgz
+npm view dsh-skill-auditor version          # → 0.5.0
+npm view dsh-skill-auditor dist.tarball     # → https://registry.npmjs.org/.../-/dsh-skill-auditor-0.5.0.tgz
 npm view dsh-skill-auditor dsh              # → { bundle: { patch: './cordis.patch.yml' } }
 ```
 
@@ -67,7 +67,7 @@ npm/CHANGELOG.md      加一节
 # 1. 改上面四处版本号
 npm run check:engine        # 引擎和上游一致？（见 §1.5）
 npm test                    # 44 项 + 打包→安装→运行全链路
-git add -A && git commit -m "release: 0.4.2"
+git add -A && git commit -m "release: 0.5.0"
 git push
 cd npm && npm publish       # 先提交再发布，别反过来
 cd .. && node catalog/stamp.mjs   # 把 catalog 条目的 commit 钉到这次提交
@@ -227,8 +227,8 @@ export default {
 | 验证 | 怎么验的 | 结果 |
 |---|---|---|
 | 条目能被市场读 | 直接 import 市场自己的 `parseCatalogProviderPage` | 通过（第一版被拒：`description` 里有换行，`plainText` 禁控制字符；已改） |
-| github 来源能被市场认 | 直接 import 市场的 `createGitHubPackageVerifier`，走真网络取清单 | `{packageName: dsh-skill-auditor, version: 0.4.1, bundlePatch: ./cordis.patch.yml}` |
-| 固定 commit 真能装 | `pnpm add "github:Zhr65/SkillFresh#8f195f0...&path:/npm"` | 19 秒装完，`dsh-skill-auditor 0.4.1` |
+| github 来源能被市场认 | 直接 import 市场的 `createGitHubPackageVerifier`，走真网络取清单 | `{packageName: dsh-skill-auditor, version: 0.5.0, bundlePatch: ./cordis.patch.yml}` |
+| 固定 commit 真能装 | `pnpm add "github:Zhr65/SkillFresh#8f195f0...&path:/npm"` | 19 秒装完，`dsh-skill-auditor 0.4.1`（当时版本） |
 | 装完真能跑 | 从安装位置 import 插件、跑 `apply(ctx)` | 注册 6 个工具，`engine/scripts/` 6 个脚本都在 |
 
 第 1 条那个失败很值得记：schema 里 `plainText` 禁止 U+0000–U+001F，**换行也算**。
@@ -283,7 +283,7 @@ returncode 0，全程只写自己的沙盒目录。
 | 审核 | 静态门禁 + 自动合并 | 站点审核 |
 | 版本权威 | npm `latest` | `_meta.json` 的 `version` |
 
-两边版本号必须一致，否则用户会看到「市场说 0.4.1、装完是 0.4.0」。
+两边版本号必须一致，否则用户会看到「市场说 0.5.0、装完是 0.4.x」。
 
 ---
 
@@ -341,7 +341,8 @@ pin 才指向一个真实存在、内容不会再变的 revision。
 node catalog/validate.mjs      # 用市场自己的校验器验条目
 npm run check:engine           # 引擎与上游一致
 npm test                       # 44 项 + 全链路
-python demo.py                 # 13 秒沙盒演示，不碰真实数据
+python scripts/test_engine.py  # 引擎回归（16 项，含 GBK / 合并 / 漂移）
+python demo.py                 # 几秒沙盒演示，不碰真实数据
 ```
 
 前两条是本轮新增的，都是为了防止「测试全绿但发出去的东西不对」这类问题。

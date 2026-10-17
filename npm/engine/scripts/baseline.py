@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 skill-auditor :: baseline.py
-Build a baseline pass-rate for a golden set on the CURRENT model.
+Build (or extend) a baseline pass-rate for golden sets on the CURRENT model.
 
 Replaying a skill requires the agent/skill runtime, so this runner is the integration
 point. Two modes:
@@ -10,15 +10,24 @@ point. Two modes:
      case with status="pending" + input + judge. The agent (or the resident console) runs
      each case, then records the verdict.
 
-  2) ingest: given a recorded results file ({case_id: true/false, ...}), emit
-     baseline-results.json in the exact schema regress.py consumes.
+  2) ingest: given a recorded results file ({case_id: true/false, ...}), merge the new
+     verdicts into baseline-results.json in the exact schema regress.py consumes.
+
+Merge semantics (changed in 0.5.0):
+  Default is MERGE BY ASSET. Assets present in this run are replaced wholesale; assets
+  that were not re-run keep their old rows (and are reported). Use --replace for a full
+  overwrite. Before this, `--golden golden/github.json` silently deleted every other
+  asset's baseline.
+
+Draft guard:
+  Cases marked `"draft": true`, or whose expected starts with TODO, are skipped unless
+  --allow-draft. `console.py bootstrap` writes drafts with placeholder judging criteria;
+  counting those as a real baseline is worse than having none.
 
 Usage:
-  python baseline.py --golden golden/github.json --out results/ --model v-current-2026-10-17
-  python baseline.py --golden golden/*.json --from recorded.json --out results/ --model v-current-2026-10-17
-
-Note: production baseline uses K>=3 replays per case (K>=5 for LLM-judge scoring cases);
-this tool records one verdict per case and trusts the caller to aggregate K runs.
+  python baseline.py --golden golden/github.json --model v-current-2026-10-17
+  python baseline.py --golden golden/*.json --from recorded.json --model v-current-2026-10-17
+  python baseline.py --golden golden/*.json --from recorded.json --replace
 """
 import os
 import sys
@@ -26,10 +35,26 @@ import json
 import glob
 import argparse
 
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(HERE)                 # .../skill-auditor (data dir by default)
+sys.path.insert(0, HERE)
+
+from console import (  # noqa: E402
+    configure_data_dir, write_json, merge_baseline,
+)
+
 
 def load_golden(path):
-    with open(path, encoding="utf-8") as f:
+    # utf-8-sig: Windows 记事本 / PowerShell 存出来的 JSON 带 BOM。
+    with open(path, encoding="utf-8-sig") as f:
         return json.load(f)
+
+
+def is_draft(case, golden):
+    if golden.get("draft") or case.get("draft"):
+        return True
+    expected = str(case.get("expected", "")).strip().upper()
+    return expected.startswith("TODO") or expected.startswith("<")
 
 
 def main():
@@ -37,17 +62,28 @@ def main():
     ap.add_argument("--golden", required=True, nargs="+", help="golden set JSON file(s)")
     ap.add_argument("--from", dest="recorded", default=None,
                     help="recorded verdicts JSON: {case_id: true/false} (optional)")
-    ap.add_argument("--out", default=os.path.dirname(os.path.abspath(__file__)))
+    ap.add_argument("--out", default=ROOT,
+                    help="data directory (default: the skill root; console.py reads it from there)")
     ap.add_argument("--model", default="v-current")
+    ap.add_argument("--replace", action="store_true",
+                    help="replace the whole baseline instead of merging by asset")
+    ap.add_argument("--allow-draft", action="store_true",
+                    help="include draft cases (placeholder expected/judge); off by default")
     args = ap.parse_args()
 
+    configure_data_dir(args.out)
     os.makedirs(args.out, exist_ok=True)
+
     cases = []
+    drafts = 0
     for g in args.golden:
         for p in sorted(glob.glob(g)):
             data = load_golden(p)
             fp = data.get("fingerprint")
             for c in data.get("cases", []):
+                if is_draft(c, data) and not args.allow_draft:
+                    drafts += 1
+                    continue
                 cases.append({
                     "skill": data["skill"],
                     "fingerprint": fp,
@@ -57,43 +93,59 @@ def main():
                     "provenance": c.get("provenance", ""),
                 })
 
+    if drafts:
+        print(f"[skip] {drafts} 个草稿用例（draft=true 或 expected 仍是 TODO）未计入基线；"
+              "补完 expected/judge 再跑，或加 --allow-draft 强制包含。")
+
     recorded = {}
     if args.recorded:
-        with open(args.recorded, encoding="utf-8") as f:
+        with open(args.recorded, encoding="utf-8-sig") as f:
             recorded = json.load(f)
 
     if recorded:
         results = []
+        missing = 0
         for c in cases:
-            if c["id"] in recorded:
-                v = recorded[c["id"]]
-                results.append({
-                    "fingerprint": c["fingerprint"],
-                    "skill": c["skill"],
-                    "model": args.model,
-                    "case_id": c["id"],
-                    "passed": bool(v.get("passed") if isinstance(v, dict) else v),
-                    "attribution": (v.get("attribution", "") if isinstance(v, dict) else ""),
-                })
-        out = {"baseline_model": args.model, "results": results}
-        path = os.path.join(args.out, "baseline-results.json")
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump(out, f, ensure_ascii=False, indent=2)
-        passed = sum(1 for r in results if r["passed"])
-        print(f"[ok] baseline-results.json -> {len(results)} executed, {passed} passed")
-    else:
-        scaffold = []
-        for c in cases:
-            scaffold.append({
-                "skill": c["skill"], "case_id": c["id"], "status": "pending",
-                "input": c["input"], "judge": c["judge"], "provenance": c["provenance"],
+            if c["id"] not in recorded:
+                missing += 1
+                continue
+            v = recorded[c["id"]]
+            results.append({
+                "fingerprint": c["fingerprint"],
+                "skill": c["skill"],
+                "model": args.model,
+                "case_id": c["id"],
+                "passed": bool(v.get("passed") if isinstance(v, dict) else v),
+                "attribution": (v.get("attribution", "") if isinstance(v, dict) else ""),
             })
-        path = os.path.join(args.out, "baseline-scaffold.json")
-        with open(path, "w", encoding="utf-8") as f:
-            json.dump({"model": args.model, "cases": scaffold}, f, ensure_ascii=False, indent=2)
-        print(f"[ok] baseline-scaffold.json -> {len(scaffold)} cases pending execution")
-        print("Run each case through the skill on the current model, then re-run with --from <verdicts.json>")
+        if missing:
+            print(f"[warn] {missing} 个用例没有判定（recorded 文件里缺 id），未写入")
+        if not results:
+            print("[err] 没有任何判定可写入；检查 recorded 文件的 case_id")
+            return 1
+        st = merge_baseline({"baseline_model": args.model, "results": results},
+                            replace=args.replace)
+        passed = sum(1 for r in results if r["passed"])
+        print(f"[ok] baseline-results.json -> 本次 {len(results)} 条（{passed} 通过）；"
+              f"库内共 {st['total']} 条")
+        print(f"     替换资产：{', '.join(st['replaced'])}")
+        if st["kept"] and not args.replace:
+            print(f"     保留资产：{', '.join(st['kept'])}（本轮没跑，旧模型判定）")
+        print(f"     模型：{', '.join(st['models'])}")
+        return 0
+
+    scaffold = []
+    for c in cases:
+        scaffold.append({
+            "skill": c["skill"], "case_id": c["id"], "status": "pending",
+            "input": c["input"], "judge": c["judge"], "provenance": c["provenance"],
+        })
+    path = os.path.join(args.out, "baseline-scaffold.json")
+    write_json(path, {"model": args.model, "cases": scaffold})
+    print(f"[ok] baseline-scaffold.json -> {len(scaffold)} cases pending execution")
+    print("Run each case through the skill on the current model, then re-run with --from <verdicts.json>")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

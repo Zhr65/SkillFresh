@@ -84,12 +84,23 @@ skill_audit_status  host=deepseek
 **③ 记模型戳 + 建基线**
 
 ```bash
-python scripts/console.py --host deepseek bump <当前模型版本>   # 让 check 有参照
-python scripts/baseline.py --golden golden/<资产名>.json --out results/ --model <当前模型版本>
+python scripts/console.py --host deepseek bump <当前模型版本>   # 让 check 有参照（按宿主写戳）
+python scripts/baseline.py --golden golden/<资产名>.json --model <当前模型版本>
 # 生成 scaffold → 用当前模型跑一遍 → 回填 true/false → --from recorded.json 再跑一次
+# draft=true / expected 仍是 TODO 的用例会被跳过（除非 --allow-draft）
 ```
 
-之后每次模型换代，`skill_audit_check` 会告诉你「基线是旧模型的」，再重跑一轮才有降级判定。
+基线默认**按资产合并**：只补一个插件不会清掉其他资产的基线。
+
+之后每次模型换代，`skill_audit_check` 会告诉你「基线是旧模型的」，再重跑一轮才有降级判定；
+把新结果并进基线用：
+
+```bash
+python scripts/console.py --host deepseek report --results new-results.json --promote
+python scripts/console.py --host deepseek scan    # 面板才会看到新判定
+```
+
+> 不加 `--promote` 的话，报告只是报告，面板不会变——这是 0.5.0 之前的坑。
 
 ---
 
@@ -133,8 +144,9 @@ $DSH_HOME/skill-auditor/            # 默认 ~/.dsh/skill-auditor
 ├── golden/                         # 每个资产的 golden set（你的，不会被升级覆盖）
 ├── hosts.json                      # 宿主表，可自己加
 ├── registry.<host>.json            # 每个宿主一份资产注册表
-├── baseline-results.json           # 判定结果
-└── model-version.json              # 当前模型戳
+├── baseline-results.json           # 判定结果（按资产合并；draft 不写入）
+├── model-version.<host>.json       # 每个宿主一个模型戳（旧版 model-version.json 仍兼容）
+└── depreciation-report.*           # 最近一次 report 的产物
 ```
 
 升级插件**只覆盖 `scripts/` 和文档**，不碰你的注册表、基线、golden set。要换位置：`SKILL_AUDITOR_HOME=/path/to/dir`。

@@ -84,6 +84,7 @@ function main() {
     }
     for (const entry of fs.readdirSync(srcDir)) {
       if (entry.startsWith('__pycache__') || entry.startsWith('.')) continue
+      if (entry.startsWith('test_') || entry.startsWith('test-')) continue   // dev-only tests
       if (!ext.some((e) => entry.endsWith(e))) continue
       const src = path.join(srcDir, entry)
       const buf = fs.readFileSync(src)

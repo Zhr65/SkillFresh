@@ -135,7 +135,7 @@ DSH **有内置插件市场**（`dsh-community-market`），路径：**设置 �
 
 ```
 npm/
-├── package.json          # name=dsh-skill-auditor, version=0.4.1（稳定版）
+├── package.json          # name=dsh-skill-auditor, version=0.5.0（稳定版）
 │                         # "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
 ├── cordis.patch.yml      # - insert: [{ id: skill-auditor, name: dsh-skill-auditor }]
 ├── plugin.json           # skills: ./skill（宿主能把它当 skill 加载）
@@ -158,13 +158,13 @@ npm/
 |---|---|
 | 唯一合法 npm 包名 | `dsh-skill-auditor` — `npm view` 返回 404，未被占用 ✓ |
 | 非 Desktop 自有 bundle | 不是 `dsh-plugin-desktop*` / `dsh-community-market` ✓ |
-| `registry.npmjs.org/<pkg>/latest` 同名 + 精确稳定版本 | 待发布；`version` 已是 `0.4.1`，无 prerelease 后缀 ✓ |
+| `registry.npmjs.org/<pkg>/latest` 同名 + 精确稳定版本 | 待发布；`version` 已是 `0.5.0`，无 prerelease 后缀 ✓ |
 | manifest 声明安全相对路径 `dsh.bundle.patch` | `./cordis.patch.yml` ✓ |
 
 **本机已验证（不是推测）：**
 
 - `npm pack` → 21 个文件 / 44 kB，不含 registry、基线、个人 golden set、构建脚本、测试
-- `npm install <tgz>` 到干净目录 → 从安装位置 import → 注册 5 个工具 → 真跑引擎出折旧表（3 个真实插件）
+- `npm install <tgz>` 到干净目录 → 从安装位置 import → 注册 6 个工具 → 真跑引擎出折旧表（3 个真实插件）
 - `prepack` 自动同步引擎，且**路径脱敏**（本机 Python 路径 → `python`）+ 禁用词扫描（命中即发布失败）
 
 **发布三步（详细版含 2FA、版本四处同步、固定动作清单 → 见 `PUBLISH.md`）：**
@@ -186,7 +186,7 @@ npm publish            # 需要 npm 账号；2FA 用 --otp
 ```
 
 ```bash
-# 最后在市场里验：搜索 → 详情（安装 preview 显示 0.4.1）→ 安装 → 完全退出重开
+# 最后在市场里验：搜索 → 详情（安装 preview 显示 0.5.0）→ 安装 → 完全退出重开
 ```
 
 > 桌面端装完若没出现，完全退出（含托盘）再打开。
@@ -213,7 +213,7 @@ npm publish            # 需要 npm 账号；2FA 用 --otp
 不需要卸载重装。引擎侧的数据兼容承诺不变：
 
 - 包的 `version` 变了 → 下次调用工具时 `ensureEngine()` 把 `scripts/` **先删后拷**整体替换
-- `registry.*.json` / `baseline-results.json` / `model-version.json` / `golden/*.json` / `hosts.json` **不动**
+- `registry.*.json` / `baseline-results.json` / `model-version*.json` / `golden/*.json` / `hosts.json` **不动**
 - `.engine.json` 记录已装引擎版本；`test/smoke.mjs` 第 5 段专测这条路径
 
 **备选路径**（更新按钮之外，仍然成立）：
@@ -251,7 +251,7 @@ cat ~/.dsh/skill-auditor/.engine.json     # 本机
 - [x] github 安装通道实测（pnpm 从固定 commit 装 `path:/npm` → 6 工具注册 → 引擎随包落地）
 - [x] `engine/` 入库 + `check:engine` 防漂移（npm 通道与 github 通道不发生版本分歧）
 - [x] git 仓库（7 次提交，零个人数据；**已推送到 https://github.com/Zhr65/SkillFresh**）
-- [x] 30 秒演示（`demo.py`：沙盒 7 步真跑引擎，约 13 秒；**远端 clone 实测通过**）
+- [x] 30 秒演示（`demo.py`：沙盒 7 步真跑引擎，几秒；**远端 clone 实测通过**）
 
 ### 仓库已上线
 
@@ -264,7 +264,7 @@ git@github.com:Zhr65/SkillFresh.git          # SSH 远端
 
 ```bash
 git clone https://github.com/Zhr65/SkillFresh.git && cd SkillFresh
-python demo.py          # 约 13 秒，沙盒，不碰他的数据
+python demo.py          # 几秒，沙盒，不碰他的数据
 ```
 
 **从远端 clone 实测**（不是推测）：`demo.py` 7 步全过、`npm test` 44 项全过。

@@ -1,6 +1,6 @@
 {
   "name": "dsh-skill-auditor",
-  "version": "0.4.1",
+  "version": "0.5.0",
   "source": "skill-auditor (upstream engine)",
   "fileCount": 12,
   "files": [
@@ -21,48 +21,48 @@
     },
     {
       "path": "README.md",
-      "bytes": 9537,
-      "sha256": "e0c96a9507f410615a88a6a68cb3e3dc13fcc028d2bdb358834e6d5e9282ab56"
+      "bytes": 11790,
+      "sha256": "ae0e6788d45456e1392fe3e5057765ce7d02cc038ce42eacbe113d93e5c79a35"
     },
     {
       "path": "scripts/baseline.py",
-      "bytes": 3934,
-      "sha256": "61e024c5e46a4642dc386f6d509ed01562b6b947d47913d133cdc9c5c738fe8d"
+      "bytes": 6132,
+      "sha256": "3ccd74f9b6f6cd6db7f8ea59414a8b247518326f5b733ab4ebadaa887402a70c"
     },
     {
       "path": "scripts/build_dist.py",
-      "bytes": 2255,
-      "sha256": "f4fa079308df2a6587766fed31f2b5db26f7456a1db41d39fdaba03c588571d8"
+      "bytes": 2449,
+      "sha256": "0e1696d5b332efed00fdc3cb708692423a08fd1732c9e561a0615b88e0627dc1"
     },
     {
       "path": "scripts/console.py",
-      "bytes": 50771,
-      "sha256": "2c8256f8c026b0f672d88b265e3c80d9e298a10065826022ba928490f487f2c1"
+      "bytes": 60334,
+      "sha256": "f736b83c152a372bb83ff3dddf37851a054f8081acfc6ebbe80415f54f4d0df7"
     },
     {
       "path": "scripts/fingerprint.py",
-      "bytes": 5038,
-      "sha256": "5ae1fcd120f18fe56c8f8aa68d39b495a6f22b8bd5c41bff69a4cd0cf81ba6e8"
+      "bytes": 5277,
+      "sha256": "e3ca3375ecf8de29c87299ebe7fd185bf434eb8dfbc2defbcb0f836284ed3348"
     },
     {
       "path": "scripts/install.py",
-      "bytes": 7185,
-      "sha256": "5af3ad6ff5f9375fc851a99aafb369afd9e82297fdf4598a395fd8b68289e5ad"
+      "bytes": 9031,
+      "sha256": "1ad4604b8640a8746b5352eb841ad03fd8f5225c358db056653a19bcfa953615"
     },
     {
       "path": "scripts/regress.py",
-      "bytes": 8242,
-      "sha256": "a6065f3ed315e28f1b557094fedef0f78a60f8801073fbf2795066d6f1cf830e"
+      "bytes": 10033,
+      "sha256": "974785b8c2728feb20c38cdbc270a1e545f39724db0a5f926060660a23f1870a"
     },
     {
       "path": "SKILL.md",
-      "bytes": 15858,
-      "sha256": "a36cfea5264cf74753b9a040a20dd4b3099dad4fba594852fafdcb52f4e77ffc"
+      "bytes": 18517,
+      "sha256": "0346b52344b79494b000f8de96bb6daa84107b682771e2ccb192933cb38b2943"
     },
     {
       "path": "USAGE.md",
-      "bytes": 6972,
-      "sha256": "47551a308e8fe7faa34af23c066db1fdccc1b7e2b2078d08ea6586f322c133d1"
+      "bytes": 8187,
+      "sha256": "e41a3ff40663bdb7de478c5636ede1b69c2261577a61a888ba9692c13f954141"
     }
   ]
 }

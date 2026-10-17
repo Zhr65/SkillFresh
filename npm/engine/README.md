@@ -2,7 +2,7 @@
 
 **Agent 能力折旧表** — 当模型升级时，告诉你哪些 skill 还灵、哪些退化了、哪些该淘汰；当用户缺能力时，按对话需求推荐 skill/插件。
 
-一个零依赖的 WorkBuddy / Claude Code 风格 skill：方法论（SKILL.md）+ 三个 stdlib-only Python 脚本（指纹 / 回归 / 常驻控制台）。
+一个零依赖的 WorkBuddy / Claude Code 风格 skill：方法论（SKILL.md）+ 六个 stdlib-only Python 脚本（指纹 / 回归 / 基线 / 常驻控制台 / 安装 / 打包）+ 一个有断言的沙盒演示。
 
 > 仓库名是 **SkillFresh**（skill 保鲜），代码里的项目名仍是 `skill-auditor`，npm 包名 `dsh-skill-auditor`。三者指同一个东西。
 
@@ -10,7 +10,7 @@
 
 ```bash
 git clone https://github.com/Zhr65/SkillFresh.git && cd SkillFresh
-python demo.py            # 约 13 秒，全程在 demo/ 沙盒里，不碰你的任何数据
+python demo.py            # 几秒，全程在 demo/ 沙盒里，不碰你的任何数据
 python demo.py --clean    # 看完删掉
 ```
 
@@ -31,8 +31,8 @@ python demo.py --clean    # 看完删掉
 ## 它解决什么
 
 - **能力退化**：模型每几个月迭代一次，但「我名下的 skill 在新模型上还灵不灵」没人回答。本工具用「版本指纹 + golden set 回归 + 20pp 阈值」把「感觉变笨了」变成可复现的判据。
-- **新 skill 好不好用**：消融对照、采纳率、净收益公式。
-- **是否适合你**：触发精度、环境对账、风格基准。
+- **新 skill 好不好用**：消融对照、采纳率、净收益公式（方法论，尚未自动化，工具不产出这些数）。
+- **是否适合你**：触发精度、环境对账、风格基准（同上，方法论层）。
 - **无匹配时推荐**：对话里出现没有 skill 覆盖的需求时，先查注册表，再按需推荐安装项。
 
 ## 多宿主：同一引擎，评 skill 也评插件
@@ -63,10 +63,10 @@ python scripts/console.py --host deepseek status                   # 插件折�
 
 **1) 手动复制（最简单）**
 ```bash
-# 用户级（所有项目可用）
-cp -r skill-auditor ~/.workbuddy-ai/skills/
+# 用户级（所有项目可用）；clone 下来的目录叫 SkillFresh，要改名为 skill-auditor
+cp -r SkillFresh ~/.workbuddy-ai/skills/skill-auditor
 # 或项目级（仅当前项目）
-cp -r skill-auditor <project>/.workbuddy-ai/skills/
+cp -r SkillFresh <project>/.workbuddy-ai/skills/skill-auditor
 ```
 
 **2) git clone**
@@ -92,7 +92,7 @@ python scripts/console.py recommend                             # 推荐/淘汰�
 python scripts/console.py suggest --need "帮我做一份财务分析报告"  # 无匹配时按需求推荐
 ```
 
-`setup` 只创建本地数据文件（版本戳、golden 模板），不覆盖已有数据。
+`setup` 只创建本地数据文件（每个宿主一个模型戳、golden 模板），不覆盖已有数据。
 
 > `hosts.json` 是**本地**配置（含你机器的真实路径，已 gitignore）；首次跑 `discover --write` 会自动生成。想手写就复制 `hosts.example.json`。
 
@@ -119,52 +119,68 @@ python scripts/console.py --host workbuddy onboard
 ## 模型升级后
 
 ```bash
-python scripts/console.py bump <新模型版本>     # 平台在真实场景应自动调用这一步
-python scripts/console.py check                # 检测变更，给出重跑指引
-# 用新模型重跑 golden set -> new-results.json
-python scripts/console.py report --results new-results.json --threshold 20
-python scripts/console.py scan                 # 新基线写回注册表
-python scripts/console.py recommend            # 看是否出现降级淘汰项
+# 1) 记录模型换代（每个宿主一个戳；平台在生产里应自动写）
+python scripts/console.py --host workbuddy bump <新模型版本>
+python scripts/console.py --host workbuddy check     # 退出码 2 = 需要重跑
+
+# 2) 用新模型重跑 golden set -> new-results.json
+python scripts/console.py --host workbuddy report --results new-results.json --promote
+#    --promote 是必需的：报告默认只写报告，不碰基线
+#    合并按资产进行：这次跑到的资产替换，没跑到的保留并打印
+
+# 3) 重扫，让折旧表和面板看到新判定
+python scripts/console.py --host workbuddy scan
+python scripts/console.py --host workbuddy recommend
 ```
+
+> `scan` 只统计**当前模型戳**下的基线。换代后还没重跑的资产会回到 `unverified`——这是有意的：
+> 旧模型上的 100% 不能证明新模型上还灵。看到一片未验证，说明该重跑了，不是工具坏了。
 
 ## 命令一览
 
 | 命令 | 作用 |
 |---|---|
+| `hosts` | 列出宿主配置与探测到的资产数 |
 | `setup` | 初始化本地数据（版本戳 + golden 模板） |
 | `scan` | 扫描 skill 目录，算指纹，合并基线 → `registry.<host>.json` |
 | `status` | 折旧表 |
 | `check` | 模型版本是否变更 → 是否需重跑 |
-| `bump <ver>` | 模拟/记录模型切换事件 |
+| `bump <ver>` | 模拟/记录模型切换事件（按宿主） |
 | `recommend` | 推荐/淘汰面板 |
-| `report` | 生成折旧报告 |
+| `report [--promote]` | 生成折旧报告；`--promote` 把结果合并进基线 |
+| `probe` | 读宿主日志，找「装得像、跑不起来」的资产 |
 | `suggest --need "<需求>"` | 无匹配 skill 时按需求推荐 |
 | `discover [--write]` | 探测本机各宿主资产目录，可写回 hosts.json |
-| `bootstrap [--per-asset N]` | 从本地历史生成 golden 草稿 |
+| `bootstrap [--per-asset N]` | 从本地历史生成 golden 草稿（draft，需补完） |
 | `onboard` | discover + scan + bootstrap 一键引导 |
+
+全局 `--out <dir>` 会把**所有**本地数据（registry / baseline / 模型戳 / golden 模板）放到该目录，不再散在两处。
 
 ## 安全与隐私
 
-- **零依赖、无网络**：三个脚本只用 Python 标准库，不发送任何数据。
+- **零依赖、无网络**：所有脚本只用 Python 标准库，不发送任何数据。
 - **不自动删、不自动装**：淘汰与安装都需要用户确认；优先「停用/归档」再删除。
-- **个人数据只留在本地**：`registry.<host>.json`、`baseline-results.json`、`recorded-*.json`、填好的 `golden/*.json`、`replay/` 都在 `.gitignore` 里，不会随仓库分发。
+- **个人数据只留在本地**：`registry.<host>.json`、`baseline-results.json`、`recorded-*.json`、`model-version*.json`、填好的 `golden/*.json`、`replay/` 都在 `.gitignore` 里，不会随仓库分发。
+- **安装器不搬运数据**：`install.py` 复制到其他宿主时只带代码、文档和 `golden/_template.json`，不复制 registry / 基线 / 个人 golden。
 - **golden set 含真实用户 prompt**：不要分享填好的 golden 文件。
 
 ## 分发内容 vs 本地生成
 
-**随包分发**：`SKILL.md`、`USAGE.md`、`README.md`、`scripts/*.py`、`golden/README.md`、`golden/_template.json`
+**随包分发**：`SKILL.md`、`USAGE.md`、`DISTRIBUTION.md`、`README.md`、`LICENSE`、`_meta.json`、`hosts.example.json`、`demo.py`、`scripts/*.py`（不含测试）、`golden/README.md`、`golden/_template.json`
 
-**本地生成（不打包）**：`registry.<host>.json`、`hosts.json`、`model-version.json`、`baseline-results.json`、`recorded-*.json`、`*-report.*`、`replay/`、填好的 `golden/<skill>.json`
+**本地生成（不打包）**：`registry.<host>.json`、`hosts.json`、`model-version*.json`、`baseline-results.json`、`recorded-*.json`、`*-report.*`、`replay/`、填好的 `golden/<skill>.json`
 
 打包：`python scripts/build_dist.py` → 产出 `dist/skill-auditor/` 与 `dist/skill-auditor.zip`（自动排除个人数据）。
 
 ## 发布前检查清单
 
-- [ ] 加 `LICENSE`（MIT / Apache-2.0 等，按你的意愿）
-- [ ] 确认 `dist/` 里没有个人数据（`build_dist.py` 已排除）
-- [ ] 仓库 README 补 1 张 `status` / `recommend` 截图
-- [ ] 若要进技能市场，按平台的发布流程提交（`SKILL.md` frontmatter 已就绪）
-- [ ] 版本号：改 `SKILL.md` 的 `version`
+- [ ] `python scripts/test_engine.py` 全过（指纹口径 / 阈值 / 漂移 / 合并 / GBK）
+- [ ] `python demo.py` 退出码 0（真实跑完 7 步，有断言）
+- [ ] `cd npm && npm test` 全过；`npm run check:engine` 显示一致（engine 没漂）
+- [ ] `python scripts/build_dist.py` 后抽查 `dist/` 里没有 registry / golden 实填 / hosts.json
+- [ ] 版本号四处一致：`SKILL.md` / `npm/package.json` / `npm/plugin.json` / `_meta.json`
+- [ ] 发布前 `node catalog/stamp.mjs` 把市场条目钉到本次提交
+- [ ] README 补 1 张 `status` / `recommend` 截图
 
 ## 目录结构
 
@@ -173,13 +189,22 @@ skill-auditor/
 ├── SKILL.md              # 方法论 + 触发条件（skill 入口）
 ├── USAGE.md              # 使用与验证指南
 ├── README.md             # 本文件
+├── DISTRIBUTION.md       # 分发/安装渠道与坑
+├── PUBLISH.md            # 发布与市场收录材料
+├── LICENSE
+├── _meta.json            # SkillHub 元数据
+├── demo.py               # 30 秒沙盒演示（有断言）
 ├── .gitignore            # 排除个人数据
 ├── scripts/
-│   ├── console.py        # 常驻控制台（setup/scan/status/check/bump/recommend/report/suggest）
-│   ├── fingerprint.py    # 版本指纹
-│   ├── regress.py        # 回归 + 降级判定
-│   ├── baseline.py       # 基线汇聚
+│   ├── console.py        # 常驻控制台（含 probe / suggest / bootstrap）
+│   ├── fingerprint.py    # 版本指纹报告（薄包装）
+│   ├── regress.py        # 回归 + 降级/漂移判定
+│   ├── baseline.py       # 基线脚手架 + 按资产合并
+│   ├── install.py        # 装到本机各 agent 宿主（不搬个人数据）
+│   ├── test_engine.py    # 引擎回归测试（不随包分发）
 │   └── build_dist.py     # 干净打包
+├── npm/                  # DSH 插件（6 个工具 + 入库的 engine/）
+├── catalog/              # 市场条目 + 校验/钉 commit 脚本
 └── golden/
     ├── README.md         # golden set 说明
     └── _template.json    # 模板（本地复制后填真实用例）

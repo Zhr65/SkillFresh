@@ -1,0 +1,322 @@
+#!/usr/bin/env python3
+"""
+skill-auditor :: test_engine.py — stdlib-only regression tests for the engine.
+
+Covers the parts that had no protection and therefore drifted silently:
+  · fingerprint scope (README edit must NOT move the fingerprint; code edit must)
+  · frontmatter block scalars (`description: |` used to become the literal "|")
+  · baseline merge semantics (partial ingest must not delete other assets)
+  · regress verdicts (threshold + direction; FINGERPRINT-DRIFT)
+  · scan/model filtering (old-model baselines must not look green)
+  · Windows GBK console output (hosts/recommend must not raise UnicodeEncodeError)
+
+Run: python scripts/test_engine.py
+"""
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tempfile
+import unittest
+
+SCRIPTS = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(SCRIPTS)
+sys.path.insert(0, SCRIPTS)
+
+import console  # noqa: E402
+import baseline as baseline_mod  # noqa: E402
+
+
+def write(path, text):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(text)
+
+
+def write_json(path, obj):
+    write(path, json.dumps(obj, ensure_ascii=False, indent=2))
+
+
+# 某些受限环境（CI 沙箱、只读 %TEMP%）不允许写系统临时目录。
+# 设置 SKILL_AUDITOR_TEST_TMP 指向可写目录即可；普通机器不需要。
+TMP_BASE = os.environ.get("SKILL_AUDITOR_TEST_TMP") or None
+
+
+def mkdtemp():
+    """Create a writable scratch dir.
+
+    Deliberately not tempfile.mkdtemp(): on Windows some sandboxes turn the
+    0o700 mode it passes into an ACL that then denies the very next write.
+    os.makedirs() with the default ACL works everywhere.
+    """
+    base = TMP_BASE or tempfile.gettempdir()
+    os.makedirs(base, exist_ok=True)
+    for _ in range(50):
+        path = os.path.join(base, "sa-test-" + os.urandom(4).hex())
+        try:
+            os.makedirs(path)
+            return path
+        except FileExistsError:
+            continue
+    raise RuntimeError("cannot create a scratch dir under %s" % base)
+
+
+def make_skill(root, name="demo-skill", body="body", readme="readme", tool="print('x')"):
+    d = os.path.join(root, name)
+    write(os.path.join(d, "SKILL.md"), "---\nname: %s\nversion: 1.0.0\n---\n%s\n" % (name, body))
+    write(os.path.join(d, "README.md"), readme)
+    write(os.path.join(d, "tool.py"), tool)
+    return d
+
+
+def run_console(*args, env=None, encoding="utf-8"):
+    e = dict(os.environ)
+    e.pop("PYTHONUTF8", None)
+    e.pop("PYTHONIOENCODING", None)
+    if env:
+        e.update(env)
+    return subprocess.run(
+        [sys.executable, os.path.join(SCRIPTS, "console.py"), *args],
+        capture_output=True, text=True, encoding=encoding, errors="replace", env=e,
+        cwd=ROOT,
+    )
+
+
+class FingerprintTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_readme_is_not_capability(self):
+        d = make_skill(self.tmp)
+        fp1, _ = console.fingerprint_asset(d)
+        write(os.path.join(d, "README.md"), "completely different docs")
+        fp2, _ = console.fingerprint_asset(d)
+        self.assertEqual(fp1, fp2, "README 改动不应改变能力指纹")
+
+    def test_code_is_capability(self):
+        d = make_skill(self.tmp)
+        fp1, _ = console.fingerprint_asset(d)
+        write(os.path.join(d, "tool.py"), "print('changed behaviour')")
+        fp2, _ = console.fingerprint_asset(d)
+        self.assertNotEqual(fp1, fp2, "脚本改动必须改变能力指纹")
+
+
+class FrontmatterTests(unittest.TestCase):
+    def test_block_scalar(self):
+        text = (
+            "---\n"
+            "name: frontend-dev\n"
+            "description: |\n"
+            "  Use when building UI.\n"
+            "  Handles: layouts, forms.\n"
+            "allowed-tools:\n"
+            "  - Read\n"
+            "  - Write\n"
+            "---\n"
+            "body\n"
+        )
+        fm = console.parse_frontmatter(text)
+        self.assertEqual(fm["name"], "frontend-dev")
+        self.assertIn("building UI", fm["description"])
+        self.assertNotEqual(fm["description"], "|")
+        self.assertEqual(fm["allowed-tools__list"], ["Read", "Write"])
+        self.assertNotIn("Handles", fm, "块标量里的 key:value 不应被当成新字段")
+
+    def test_folded_scalar(self):
+        fm = console.parse_frontmatter("---\ndescription: >\n  one\n  two\n---\n")
+        self.assertEqual(fm["description"], "one two")
+
+
+class SuggestionTests(unittest.TestCase):
+    def test_no_false_eval_gap(self):
+        reg = {"assets": {
+            "test-driven-development": {}, "verification-before-completion": {},
+            "systematic-debugging": {}, "frontend-dev": {},
+        }}
+        slugs = [g["slug"] for g in console.gap_analysis(reg)]
+        self.assertNotIn("evals", slugs, "已有 test/verify/debug 时不应再建议装评测")
+
+    def test_real_gap_still_reported(self):
+        reg = {"assets": {"frontend-dev": {}}}
+        slugs = [g["slug"] for g in console.gap_analysis(reg)]
+        self.assertIn("evals", slugs)
+
+    def test_segment_match(self):
+        reg = {"assets": {"frontend-dev": {}, "humanizer": {}}}
+        hits = [n for n, _ in console.match_existing("帮我做个前端页面", reg)]
+        self.assertIn("frontend-dev", hits)
+
+
+class BaselineMergeTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = mkdtemp()
+        console.configure_data_dir(self.tmp)
+
+    def tearDown(self):
+        console.configure_data_dir(ROOT)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _old(self):
+        write_json(console.BASELINE, {
+            "baseline_model": "v1",
+            "results": [
+                {"skill": "a", "case_id": "a1", "model": "v1", "passed": True, "fingerprint": "f1"},
+                {"skill": "a", "case_id": "a2", "model": "v1", "passed": True, "fingerprint": "f1"},
+                {"skill": "b", "case_id": "b1", "model": "v1", "passed": True, "fingerprint": "f2"},
+            ],
+        })
+
+    def test_partial_ingest_keeps_other_assets(self):
+        self._old()
+        st = console.merge_baseline({"baseline_model": "v2", "results": [
+            {"skill": "a", "case_id": "a1", "model": "v2", "passed": False, "fingerprint": "f1"},
+        ]})
+        doc = console.load_json(console.BASELINE)
+        self.assertEqual(st["total"], 2, "a 的旧行被替换，b 的行必须留下")
+        self.assertEqual(st["kept"], ["b"])
+        skills = sorted(r["skill"] for r in doc["results"])
+        self.assertEqual(skills, ["a", "b"])
+
+    def test_replace_overwrites(self):
+        self._old()
+        st = console.merge_baseline({"baseline_model": "v2", "results": [
+            {"skill": "a", "case_id": "a1", "model": "v2", "passed": False, "fingerprint": "f1"},
+        ]}, replace=True)
+        self.assertEqual(st["total"], 1)
+        self.assertEqual(st["kept"], [])
+
+    def test_draft_guard(self):
+        draft = {"draft": True, "cases": [{"id": "x", "expected": "TODO: fill"}]}
+        real = {"cases": [{"id": "y", "expected": "does the job"}]}
+        self.assertTrue(baseline_mod.is_draft(draft["cases"][0], draft))
+        self.assertFalse(baseline_mod.is_draft(real["cases"][0], real))
+
+
+class RegressTests(unittest.TestCase):
+    def run_regress(self, results):
+        tmp = mkdtemp()
+        try:
+            path = os.path.join(tmp, "results.json")
+            out = os.path.join(tmp, "out")
+            write_json(path, results)
+            p = subprocess.run(
+                [sys.executable, os.path.join(SCRIPTS, "regress.py"),
+                 "--results", path, "--out", out, "--compare", "v2"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+            )
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            with open(os.path.join(out, "depreciation-report.json"), encoding="utf-8") as fh:
+                return json.load(fh)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+    def test_degradation(self):
+        rows = []
+        for i in range(5):
+            rows.append({"skill": "s", "fingerprint": "fp", "model": "v1",
+                         "case_id": "c%d" % i, "passed": True})
+        for i in range(3):
+            rows.append({"skill": "s", "fingerprint": "fp", "model": "v2",
+                         "case_id": "c%d" % i, "passed": True, "attribution": "rewrite instructions"})
+        for i in range(3, 5):
+            rows.append({"skill": "s", "fingerprint": "fp", "model": "v2",
+                         "case_id": "c%d" % i, "passed": False, "attribution": "rewrite instructions"})
+        rep = self.run_regress({"baseline_model": "v1", "results": rows})
+        row = rep["rows"][0]
+        self.assertEqual(row["verdict"], "DEGRADATION")
+        self.assertEqual(row["drop_pp"], 40.0)
+        self.assertEqual((row["worse_cases"], row["better_cases"]), (2, 0))
+
+    def test_mixed_direction_is_not_degradation(self):
+        rows = []
+        base = [True, True, True, True, False]
+        new = [False, False, True, True, True]
+        for i, p in enumerate(base):
+            rows.append({"skill": "s", "fingerprint": "fp", "model": "v1",
+                         "case_id": "c%d" % i, "passed": p})
+        for i, p in enumerate(new):
+            rows.append({"skill": "s", "fingerprint": "fp", "model": "v2",
+                         "case_id": "c%d" % i, "passed": p})
+        rep = self.run_regress({"baseline_model": "v1", "results": rows})
+        row = rep["rows"][0]
+        self.assertEqual(row["drop_pp"], 20.0)
+        self.assertEqual((row["worse_cases"], row["better_cases"]), (2, 1))
+        self.assertEqual(row["verdict"], "volatility watch")
+
+    def test_fingerprint_drift(self):
+        rows = [
+            {"skill": "s", "fingerprint": "old", "model": "v1", "case_id": "c0", "passed": True},
+            {"skill": "s", "fingerprint": "new", "model": "v2", "case_id": "c0", "passed": True},
+        ]
+        rep = self.run_regress({"baseline_model": "v1", "results": rows})
+        verdicts = {r["verdict"] for r in rep["rows"]}
+        self.assertIn("FINGERPRINT-DRIFT", verdicts)
+
+
+class ScanModelFilterTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = mkdtemp()
+        self.assets = os.path.join(self.tmp, "assets")
+        self.data = os.path.join(self.tmp, "data")
+        make_skill(self.assets, "demo-skill")
+        write_json(os.path.join(self.data, "baseline-results.json"), {
+            "baseline_model": "v1",
+            "results": [{"skill": "demo-skill", "case_id": "c1", "model": "v1",
+                         "passed": True, "fingerprint": "x"}],
+        })
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _scan(self):
+        p = run_console("--host", "generic", "--root", self.assets, "--out", self.data, "scan")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        with open(os.path.join(self.data, "registry.generic.json"), encoding="utf-8") as fh:
+            return json.load(fh)["assets"]["demo-skill"]
+
+    def test_newer_model_baseline_not_counted(self):
+        p = run_console("--host", "generic", "--root", self.assets, "--out", self.data,
+                        "setup", "--model", "v1")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(self._scan()["baseline_n"], 1)
+
+        run_console("--host", "generic", "--out", self.data, "bump", "v2")
+        asset = self._scan()
+        self.assertEqual(asset["baseline_n"], 0, "旧模型的基线不能被当成当前模型的绿灯")
+        self.assertEqual(asset["status"], "unverified")
+
+
+@unittest.skipUnless(os.name == "nt", "GBK console only exists on Windows")
+class GbkConsoleTests(unittest.TestCase):
+    def test_hosts_does_not_crash(self):
+        p = run_console("hosts", env={"PYTHONIOENCODING": "gbk"}, encoding="gbk")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertNotIn("UnicodeEncodeError", p.stderr)
+
+    def test_recommend_does_not_crash(self):
+        tmp = mkdtemp()
+        try:
+            # 造一个最小注册表，避免依赖用户真实资产
+            write_json(os.path.join(tmp, "registry.generic.json"), {
+                "updated_at": "2026-01-01T00:00:00", "host": "generic",
+                "kind": "plugin", "label": "asset", "root": tmp,
+                "active_model": "v1", "last_regression_model": "v1",
+                "count": 1,
+                "assets": {"demo": {"fingerprint": "f", "baseline_n": 0, "risk": 10,
+                                    "capabilities": {}, "status": "unverified",
+                                    "recommendation": "evaluate", "has_golden": False}},
+            })
+            p = run_console("--host", "generic", "--out", tmp, "recommend",
+                            env={"PYTHONIOENCODING": "gbk"}, encoding="gbk")
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            self.assertNotIn("UnicodeEncodeError", p.stderr)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+if __name__ == "__main__":
+    unittest.main(verbosity=2)

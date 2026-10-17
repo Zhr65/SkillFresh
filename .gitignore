@@ -1,8 +1,9 @@
 # ---- personal data (never commit / never ship) ----
 hosts.json
 registry*.json
-model-version.json
+model-version*.json
 baseline-results.json
+baseline-scaffold.json
 recorded-*.json
 depreciation-report.json
 depreciation-report.md
@@ -20,6 +21,9 @@ _archive/
 dist/
 # demo.py 的沙盒，每次重跑都会重建
 demo/
+# test_engine.py 的自定义临时目录
+.test-tmp/
+.tmpdata/
 
 # ---- python ----
 __pycache__/

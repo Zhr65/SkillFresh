@@ -39,7 +39,10 @@ def main():
         sys.exit(1)
 
     skills_dir = sys.argv[1]
-    out_dir = sys.argv[sys.argv.index("--out") + 1] if "--out" in sys.argv else skills_dir
+    # 默认写到本 skill 的根目录，而不是被扫描的 skills 目录：
+    # 以前默认把 fingerprint-report.* 丢进用户的宿主目录，等于污染它。
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    out_dir = sys.argv[sys.argv.index("--out") + 1] if "--out" in sys.argv else root
 
     if not os.path.isdir(skills_dir):
         print(f"skills_dir not found: {skills_dir}")

@@ -48,6 +48,69 @@ HOSTS_CFG = os.path.join(AUDITOR, "hosts.json")
 INDEXED_EXT = (".md", ".py", ".js", ".ts", ".json", ".sh", ".dot", ".yaml", ".yml")
 SCRIPT_EXT = (".py", ".js", ".ts", ".sh")
 
+
+def configure_data_dir(out=None):
+    """--out 必须对**所有**数据生效。
+
+    以前它只改 report / golden 模板的位置，baseline / model-version / registry
+    仍写死在 AUDITOR，等于「看起来支持、实际半支持」：用户把 --out 指到别处，
+    数据还是散在两处。现在所有路径都从这里派生。
+    """
+    global DEFAULT_OUT, BASELINE, MODEL_STAMP, GOLDEN_DIR
+    DEFAULT_OUT = os.path.abspath(os.path.expanduser(out or AUDITOR))
+    BASELINE = os.path.join(DEFAULT_OUT, "baseline-results.json")
+    MODEL_STAMP = os.path.join(DEFAULT_OUT, "model-version.json")
+    GOLDEN_DIR = os.path.join(DEFAULT_OUT, "golden")
+    return DEFAULT_OUT
+
+
+def model_stamp_path(host=None):
+    """模型戳按宿主分开：WorkBuddy 与 DSH 的模型换代不是同一时刻发生的，
+    共用一个全局戳会互相污染（一边 bump，另一边也报「需重跑」）。"""
+    return os.path.join(DEFAULT_OUT, "model-version.%s.json" % host) if host else MODEL_STAMP
+
+
+# ---------------------------------------------------------------- 控制台安全输出
+# Windows 中文控制台是 GBK（cp936）：✓、✗、⚠、emoji 都不在码表里，print 会直接
+# UnicodeEncodeError，把一条正常命令变成 traceback。不能强行把 stdout 改成 UTF-8
+# ——那会让老控制台显示乱码。这里按「当前 stdout 能编码什么」选符号，中文原样输出。
+_OUT_ENC = (getattr(sys.stdout, "encoding", None) or "ascii")
+
+
+def _can_encode(text):
+    try:
+        text.encode(_OUT_ENC)
+        return True
+    except (UnicodeEncodeError, LookupError):
+        return False
+
+
+def sym(primary, *fallbacks):
+    for s in (primary,) + fallbacks:
+        if _can_encode(s):
+            return s
+    return ""
+
+
+OK_MARK = sym("✓", "[ok]")
+FAIL_MARK = sym("✗", "[x]")
+WARN_MARK = sym("⚠", "!")
+GREEN = sym("🟢", "●", "+")
+YELLOW = sym("🟡", "◐", "o")
+WHITE = sym("⚪", "○", "o")
+RED = sym("🔴", "✗", "x")
+ORANGE = sym("🔶", "△", "!")
+BULB = sym("💡", "*")
+
+
+def use_safe_stdio():
+    """兜底：即使遇到没预料的字符，也让它变成 '?' 而不是崩溃。"""
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(errors="replace")
+        except Exception:
+            pass
+
 # ---------------------------------------------------------------- 指纹口径
 # 指纹只覆盖**能力面**。文档/图片/锁文件不参与：
 #   · 改 README 不该触发「资产被改过」——它不影响能力，却会让指纹变，产生假的 FINGERPRINT-DRIFT
@@ -161,7 +224,9 @@ def now_iso():
 def load_json(path, default=None):
     if not os.path.exists(path):
         return default
-    with open(path, encoding="utf-8") as f:
+    # utf-8-sig：Windows 记事本 / PowerShell 存出来的 JSON 带 BOM，
+    # 用 "utf-8" 读会 JSONDecodeError（用户手写的 recorded/golden 最容易踩）。
+    with open(path, encoding="utf-8-sig") as f:
         return json.load(f)
 
 
@@ -171,30 +236,52 @@ def write_json(path, obj):
 
 
 def parse_frontmatter(text):
-    """Minimal YAML frontmatter reader: scalars plus '-' list items.
+    """Minimal YAML frontmatter reader: scalars, lists, and block scalars.
 
-    List items are stored under `<key>__list`. This matters: `allowed-tools` is a
-    YAML list in most skills, and dropping those lines silently zeroed the
-    tool-dependency term of the risk score for every asset.
+    Handles the three shapes real skills use:
+      - `key: value`
+      - `key:` followed by `  - item` (stored under `<key>__list`)
+      - `key: |` / `key: >` followed by indented text (folded into one string)
+
+    The block-scalar case is not cosmetic: `frontend-dev` writes
+    `description: |`, and a parser that drops it stores the literal "|" as the
+    description — which then poisons keyword matching in `bootstrap`.
     """
     fm = {}
     m = re.match(r"^---\s*\n(.*?)\n---\s*\n", text, re.DOTALL)
     if not m:
         return fm
+    lines = m.group(1).splitlines()
     key = None
-    for line in m.group(1).splitlines():
+    i = 0
+    while i < len(lines):
+        line = lines[i]
         stripped = line.strip()
-        if not stripped:
+        if not stripped or stripped.startswith("#"):
+            i += 1
             continue
         if stripped.startswith("- "):
             if key:
                 fm.setdefault(key + "__list", []).append(
                     stripped[2:].strip().strip('"').strip("'"))
+            i += 1
             continue
-        if ":" in stripped:
+        if ":" in stripped and not line[:1].isspace():
             k, v = stripped.split(":", 1)
             key = k.strip()
-            fm[key] = v.strip().strip('"').strip("'")
+            v = v.strip()
+            if v in ("|", ">", "|-", ">-", "|+", ">+"):
+                block = []
+                i += 1
+                while i < len(lines) and (not lines[i].strip() or lines[i][:1].isspace()):
+                    block.append(lines[i].strip())
+                    i += 1
+                fm[key] = " ".join(x for x in block if x).strip()
+                continue
+            fm[key] = v.strip('"').strip("'")
+            i += 1
+            continue
+        i += 1
     return fm
 
 
@@ -227,12 +314,14 @@ def parse_manifest(manifest_path):
     return meta
 
 
-def discover_assets(root, manifests, mode="dirs"):
+def discover_assets(root, manifests, mode="dirs", quiet=False):
     """Find assets under `root`.
 
     mode="dirs": each subdir with a manifest (scoped @scope/name dirs descended one level).
     mode="deps": read <root>/package.json dependencies and resolve each to
                  <root>/node_modules/<name> (npm/pnpm layout).
+
+    quiet=True suppresses the `[skip]` chatter (used by `hosts`, which only wants counts).
     """
     if not os.path.isdir(root):
         return []
@@ -253,8 +342,8 @@ def discover_assets(root, manifests, mode="dirs"):
             # as a separate asset inflates the table and creates a phantom row with
             # no baseline. Skip them, but say so rather than dropping them silently.
             if name.startswith((".", "_")):
-                if os.path.isfile(os.path.join(p, "SKILL.md")) or any(
-                        os.path.isfile(os.path.join(p, m)) for m in manifests):
+                if not quiet and (os.path.isfile(os.path.join(p, "SKILL.md")) or any(
+                        os.path.isfile(os.path.join(p, m)) for m in manifests)):
                     print(f"[skip] transient-looking dir (not counted as an asset): {name}")
                 continue
             if name.startswith("@"):
@@ -419,9 +508,50 @@ def reg_assets(reg):
     return reg.get("assets") or reg.get("skills") or {}
 
 
-def get_active_model():
-    s = load_json(MODEL_STAMP, None)
+def get_active_model(host=None):
+    """当前模型戳。优先读 model-version.<host>.json，fallback 到旧版全局戳。"""
+    p = model_stamp_path(host)
+    s = load_json(p, None)
+    if s is None and host:
+        s = load_json(MODEL_STAMP, None)   # 0.4.x 的单一全局戳：兼容读取
     return (s or {}).get("version") or "v-unknown"
+
+
+def merge_baseline(new_doc, replace=False):
+    """把一次回归结果并入基线，返回统计。
+
+    默认按**资产**合并：本次跑到的资产整块替换，没跑到的资产原样保留。
+    以前是整体覆盖，只重跑一个 skill 就会把其他资产的基线静默清空。
+    """
+    old = load_json(BASELINE, {"results": []}) or {"results": []}
+    new_rows = [r for r in (new_doc.get("results") or []) if r.get("skill")]
+    new_skills = {r["skill"] for r in new_rows}
+    if replace or not old.get("results"):
+        merged_rows = list(new_rows)
+        kept_skills = set()
+    else:
+        kept = [r for r in old["results"] if r.get("skill") not in new_skills]
+        kept_skills = {r.get("skill") for r in kept if r.get("skill")}
+        merged_rows = kept + new_rows
+    models = sorted({r.get("model") for r in merged_rows if r.get("model")})
+    doc = {
+        "baseline_model": (new_doc.get("baseline_model") or old.get("baseline_model") or ""),
+        "models": models,
+        "merged_at": now_iso(),
+        "results": merged_rows,
+    }
+    write_json(BASELINE, doc)
+    return {"replaced": sorted(new_skills), "kept": sorted(kept_skills),
+            "total": len(merged_rows), "models": models}
+
+
+def report_is_newer(host):
+    """report 写了判定、但 registry 还没吸收 —— 面板与报告会不一致。"""
+    rp = os.path.join(DEFAULT_OUT, "depreciation-report.json")
+    reg = registry_path(host)
+    if not (os.path.exists(rp) and os.path.exists(reg)):
+        return False
+    return os.path.getmtime(rp) > os.path.getmtime(reg) + 1
 
 
 # ---------------------------------------------------------------- commands
@@ -437,8 +567,9 @@ def cmd_hosts(args):
                   f"assets=—   root=(not set — pass --root <path>)")
             continue
         exists = os.path.isdir(r)
-        n = len(discover_assets(r, prof.get("manifests", ["SKILL.md"]), prof.get("discover", "dirs"))) if exists else 0
-        mark = "✓" if exists else "✗"
+        n = len(discover_assets(r, prof.get("manifests", ["SKILL.md"]), prof.get("discover", "dirs"),
+                               quiet=True)) if exists else 0
+        mark = OK_MARK if exists else FAIL_MARK
         print(f"  {mark} {host:<14} kind={prof.get('kind','?'):<7} discover={prof.get('discover','dirs'):<5} assets={n:<3} root={r}")
     print("-" * 82)
     print("  用 --host <name> --root <path> 指定；改 hosts.json 可加自定义宿主。")
@@ -447,16 +578,20 @@ def cmd_hosts(args):
 
 def cmd_setup(args):
     host, prof = resolve_host(args)
-    out = args.out
+    out = DEFAULT_OUT
     os.makedirs(out, exist_ok=True)
-    gdir = os.path.join(out, "golden")
+    gdir = GOLDEN_DIR
     os.makedirs(gdir, exist_ok=True)
 
-    if not os.path.exists(MODEL_STAMP):
-        write_json(MODEL_STAMP, {"version": args.model, "bumped_at": now_iso(), "note": "set by setup"})
-        print(f"[ok] model-version.json -> {args.model}")
+    stamp = model_stamp_path(host)
+    legacy_stamp = os.path.exists(MODEL_STAMP) and load_json(MODEL_STAMP, {}) or {}
+    if not os.path.exists(stamp) and not legacy_stamp.get("version"):
+        write_json(stamp, {"version": args.model, "bumped_at": now_iso(), "note": "set by setup"})
+        print(f"[ok] {os.path.basename(stamp)} -> {args.model}")
+    elif os.path.exists(stamp):
+        print(f"[skip] {os.path.basename(stamp)} exists ({get_active_model(host)})")
     else:
-        print(f"[skip] model-version.json exists ({get_active_model()})")
+        print(f"[skip] legacy model-version.json exists ({legacy_stamp.get('version')}) — kept as fallback")
 
     if not any(f.endswith(".json") for f in os.listdir(gdir)):
         write_json(os.path.join(gdir, "_template.json"), {
@@ -497,8 +632,15 @@ def cmd_scan(args):
         return 1
 
     baseline = load_json(BASELINE, {"results": []})
+    active_model = get_active_model(host)
     base_by_asset = {}
+    skipped = 0
     for r in baseline.get("results", []):
+        # 只统计当前模型戳下的判定。模型换代后还没重跑的资产会回到 unverified，
+        # 这是有意的：旧模型上的 100% 不能证明新模型上还灵（否则就是假绿灯）。
+        if active_model and r.get("model") and r["model"] != active_model:
+            skipped += 1
+            continue
         s = r["skill"]
         d = base_by_asset.setdefault(s, {"n": 0, "pass": 0})
         d["n"] += 1
@@ -513,7 +655,6 @@ def cmd_scan(args):
 
     prev = load_registry(host) or {}
     prev_assets = reg_assets(prev)
-    active_model = get_active_model()
 
     out_assets = {}
     for a in assets:
@@ -579,7 +720,7 @@ def cmd_scan(args):
         "root": os.path.abspath(root),
         "fp_algo": FP_ALGO,
         "active_model": active_model,
-        "last_regression_model": baseline.get("baseline_model", active_model),
+        "last_regression_model": baseline.get("baseline_model") or active_model,
         "count": len(out_assets),
         "assets": out_assets,
     }
@@ -587,6 +728,8 @@ def cmd_scan(args):
     print(f"[ok] registry.{host}.json -> {len(out_assets)} {prof['label']}(s)")
     print(f"     root={root}")
     print(f"     active_model={active_model}  baseline_model={baseline.get('baseline_model')}")
+    if skipped:
+        print(f"     {WARN_MARK} {skipped} 条基线属于旧模型，未计入（模型换代后先重跑 golden set 再 scan）")
     drifted = [(k, v["caps_diff"]) for k, v in out_assets.items() if v.get("caps_diff")]
     if drifted:
         print(f"[caps] {len(drifted)} 个资产的能力面有变化（这是「它对外提供的东西变了」，与通过率无关）：")
@@ -620,7 +763,7 @@ def cmd_status(args):
     for name, s in sorted(reg_assets(reg).items()):
         rate = "—" if s.get("baseline_rate") is None else f"{s['baseline_rate']*100:.0f}%"
         base = f"{s.get('baseline_pass',0)}/{s.get('baseline_n',0)} {rate}" if s.get("baseline_n") else "— —"
-        tag = " ✓elim" if s.get("eliminated") else ""
+        tag = f" {OK_MARK}elim" if s.get("eliminated") else ""
         caps = s.get("capabilities") or {}
         caps_n = len(caps) if isinstance(caps, dict) else 0
         print(f"{name:<{w}}{s.get('fingerprint',''):<18}{base:<10}{s.get('risk',0):<6}"
@@ -629,6 +772,10 @@ def cmd_status(args):
     print("  注：基线为 K=1 单次判定（多为同模型自评）；risk = 行数+工具依赖的维护面代理，不代表价值。")
     print(f"  caps = 能力面条目数（入口/patch/工具/脚本…）；指纹口径 {reg.get('fp_algo', 'v1')}，"
           "只算能力面，不含 README/图片/锁文件。")
+    print("  注：基线只统计 active_model 下的判定；换代后未重跑的资产会回到 unverified。")
+    if report_is_newer(host):
+        print(f"  {WARN_MARK} 折旧报告比注册表新：report 的判定还没进面板，"
+              "用 report --promote 合并基线后再 scan。")
     return 0
 
 
@@ -638,25 +785,27 @@ def cmd_check(args):
     if not reg:
         print(f"[err] registry.{host}.json missing — run `--host {host} scan` first")
         return 1
-    active = get_active_model()
+    active = get_active_model(host)
     last = reg.get("last_regression_model", active)
     if active != last:
-        print(f"⚠  检测到模型版本变更（{host}）：{last}  →  {active}")
+        print(f"{WARN_MARK}  检测到模型版本变更（{host}）：{last}  →  {active}")
         print("    重跑回归以更新折旧表：")
         print("      1) 用新模型重跑 golden set -> new-results.json")
-        print(f"      2) python console.py --host {host} report --results new-results.json")
+        print(f"      2) python console.py --host {host} report --results new-results.json --promote")
         print(f"      3) python console.py --host {host} scan")
         return 2
-    print(f"✓  当前模型 {active} 已是 {host} 的最近回归基线，无需重跑。")
+    print(f"{OK_MARK}  当前模型 {active} 已是 {host} 的最近回归基线，无需重跑。")
     return 0
 
 
 def cmd_bump(args):
+    host, _ = resolve_host(args)
     ver = args.version or f"v-auto-{now_iso()}"
-    write_json(MODEL_STAMP, {"version": ver, "bumped_at": now_iso(),
-                             "note": "simulated platform model-switch event"})
-    print(f"[ok] 模型版本已更新为 {ver}（模拟模型切换事件）。")
-    print("     运行 `check` 查看是否需要重跑回归。")
+    stamp = model_stamp_path(host)
+    write_json(stamp, {"version": ver, "bumped_at": now_iso(),
+                       "note": "simulated platform model-switch event"})
+    print(f"[ok] 模型版本已更新为 {ver}（{host}，模拟模型切换事件）。")
+    print(f"     写入 {os.path.basename(stamp)}；运行 `check` 查看是否需要重跑回归。")
     return 0
 
 
@@ -694,32 +843,35 @@ def cmd_recommend(args):
         for act, name, s in rows:
             print(f"   {('[%s:%s]' % (act, name)):<{w}}  {name:<26} {tail(s)}")
 
-    print(f"🟢 强 {label}（保留 / 可置顶推荐）")
+    print(f"{GREEN} 强 {label}（保留 / 可置顶推荐）")
     emit([("keep", n, s) for n, s in strong],
          lambda s: f"基线 {s.get('baseline_pass')}/{s.get('baseline_n')}  risk={s.get('risk')}")
 
-    print("\n🟡 观察（已建基线但高风险，先保留）")
+    print(f"\n{YELLOW} 观察（已建基线但高风险，先保留）")
     emit([("watch", n, s) for n, s in watch],
          lambda s: f"基线 {s.get('baseline_pass')}/{s.get('baseline_n')}  risk={s.get('risk')}")
 
-    print("\n⚪ 未验证（无基线，建议先建 golden set 再判断，暂不淘汰）")
+    print(f"\n{WHITE} 未验证（无基线，建议先建 golden set 再判断，暂不淘汰）")
     emit([("eval", n, s) for n, s in unverified], lambda s: f"risk={s.get('risk')}")
 
-    print("\n🔴 已降级 · 淘汰候选（升级重跑后通过率跌破阈值才出现）")
+    print(f"\n{RED} 已降级 · 淘汰候选（升级重跑后通过率跌破阈值才出现）")
     emit([("rewrite", n, s) for n, s in degraded],
          lambda s: f"基线 {s.get('baseline_pass')}/{s.get('baseline_n')}")
 
-    print("\n🔶 可选精简候选（无基线 + 维护面极高，仅建议评估，绝不自动删除）")
+    print(f"\n{ORANGE} 可选精简候选（无基线 + 维护面极高，仅建议评估，绝不自动删除）")
     emit([("prune", n, s) for n, s in prune],
          lambda s: f"risk={s.get('risk')} lines={s.get('lines')} tools={s.get('tool_deps')}")
 
-    print(f"\n💡 建议新增 {label}（填补能力缺口；安装由你确认）")
+    print(f"\n{BULB} 建议新增 {label}（填补能力缺口；安装由你确认）")
     gaps = gap_analysis(reg)
     gw = max([len("[install:%s]" % g["slug"]) for g in gaps] or [0])
     for g in gaps:
         print(f"   {('[install:%s]' % g['slug']):<{gw}}  {g['title']} — {g['why']}")
 
     print("\n操作方式：告诉我『keep:名称 / watch:名称 / eval:名称 / prune:名称 / install:名称』，我按你的选择执行（淘汰与安装均先确认）。")
+    if report_is_newer(host):
+        print(f"{WARN_MARK} 折旧报告比注册表新：report 的判定还没进面板，"
+              "用 report --promote 合并基线后再 scan。")
     return 0
 
 
@@ -803,11 +955,11 @@ def cmd_probe(args):
         if faults:
             bad.append((name, faults))
     if not bad:
-        print(f"\n✓ 日志里没有可归因到 {len(names)} 个资产的故障迹象。")
+        print(f"\n{OK_MARK} 日志里没有可归因到 {len(names)} 个资产的故障迹象。")
         print(f"  （不代表没问题 —— {PROBE_BLIND_SPOTS}）")
         return 0
 
-    print(f"\n⚠ {len(bad)} 个资产有运行时故障迹象（文件齐全、manifest 正确，但跑起来报错）：")
+    print(f"\n{WARN_MARK} {len(bad)} 个资产有运行时故障迹象（文件齐全、manifest 正确，但跑起来报错）：")
     for name, faults in bad:
         last = faults[-1]
         print(f"\n  {name}")
@@ -819,39 +971,72 @@ def cmd_probe(args):
     return 1 if getattr(args, "strict", False) else 0
 
 
+def _covered(names, words):
+    """资产名里是否已有这类能力（子串匹配）。
+
+    以前这里是 `t in names` 的精确集合判断：资产叫 `test-driven-development`，
+    就永远匹配不到 "test"，于是面板一直建议再装一个评测类 skill —— 假缺口。
+    """
+    low = [n.lower() for n in names]
+    return any(any(w in n for w in words) for n in low)
+
+
 def gap_analysis(reg):
     names = set(reg_assets(reg).keys())
     out = []
-    dev_like = [k for k in names if any(t in k for t in ("dev", "code", "debug", "test", "frontend", "backend"))]
-    if dev_like and not any(t in names for t in ("test", "eval", "verify")):
-        out.append({"slug": "evals", "title": "评测/测试类", "why": "已有较多开发类资产，缺专门回归/评测能力"})
-    if "writing-skills" in names and "humanizer" not in names:
+    dev_like = _covered(names, ("dev", "code", "debug", "test", "frontend", "backend", "plan"))
+    if dev_like and not _covered(names, ("eval", "test", "verify", "debug", "regress")):
+        out.append({"slug": "evals", "title": "评测/测试类", "why": "已有开发类资产，但没有专门做回归/评测的"})
+    if _covered(names, ("writing", "doc", "blog")) and not _covered(names, ("humanizer",)):
         out.append({"slug": "humanizer", "title": "humanizer（去 AI 味）", "why": "写作类资产缺一个去 AI 味的"})
     if not out:
-        out.append({"slug": "observability", "title": "可观测性/成本追踪", "why": "净值表需要 token/采纳率遥测"})
+        out.append({"slug": "observability", "title": "可观测性/成本追踪",
+                    "why": "净值表需要 token/采纳率遥测（当前没有数据源，属方法论待落地项）"})
     return out
 
 
 def cmd_report(args):
-    cmd = [sys.executable, REGRESS_PY, "--results", args.results,
-           "--out", args.out, "--threshold", str(args.threshold)]
+    results = args.results or BASELINE
+    cmd = [sys.executable, REGRESS_PY, "--results", results,
+           "--out", DEFAULT_OUT, "--threshold", str(args.threshold)]
     if getattr(args, "compare", None):
         cmd += ["--compare", args.compare]
     rc, outp, errp = run(cmd)
     print(outp)
     if errp:
         print("[stderr]", errp)
+    if rc != 0:
+        return rc
+    promote = getattr(args, "promote", False)
+    if promote:
+        data = load_json(results, {}) or {}
+        st = merge_baseline(data, replace=getattr(args, "replace", False))
+        print(f"\n[ok] 基线已合并：替换 {len(st['replaced'])} 个资产，保留 {len(st['kept'])} 个，"
+              f"共 {st['total']} 条（模型：{', '.join(st['models']) or '?'}）")
+        if st["kept"]:
+            print(f"     保留未重跑的资产：{', '.join(st['kept'])}（仍是旧模型的判定）")
+        print(f"     下一步：python scripts/console.py --host {args.host or 'workbuddy'} scan")
+    else:
+        print("\n提示：报告不会改基线。要让折旧表/面板看到这次判定，请加 --promote 后重跑，再 scan。")
     return rc
 
 
 def match_existing(need, reg):
+    """需求 → 已装资产。名称全串 + 名称片段（去噪）两级匹配。
+
+    以前只认「完整资产名出现在需求里」，用户说「帮我润色一下」永远匹配不到
+    humanizer；片段匹配让「去 AI 味 / 财报 / 图表」这类自然说法也能命中。
+    """
     assets = reg_assets(reg)
     need_l = (need or "").lower()
+    noise = {"skill", "plugin", "tool", "tools", "agent", "agents", "dsh", "the", "and", "with"}
     hits, seen = [], set()
     for name, s in assets.items():
         if s.get("eliminated"):
             continue
-        if name.lower() in need_l and name not in seen:
+        segs = [p for p in re.split(r"[-_/@.]+", name.lower())
+                if len(p) >= 4 and p not in noise]
+        if name.lower() in need_l or any(p in need_l for p in segs):
             hits.append((name, "名称命中"))
             seen.add(name)
     for t in TAXONOMY:
@@ -873,7 +1058,7 @@ def cmd_suggest(args):
     print(f"\n需求：{need}\n宿主：{host}（{label}）\n")
     hits = match_existing(need, reg)
     if hits:
-        print(f"✓ 你已有可用的 {label}：")
+        print(f"{OK_MARK} 你已有可用的 {label}：")
         for n, why in hits:
             print(f"   → {n}  ({why})")
         print("\n直接说『用 <名称> 做…』即可，无需安装。")
@@ -886,12 +1071,12 @@ def cmd_suggest(args):
             best = t
             break
     if best:
-        print(f"💡 当前 {host} 没有匹配的 {label}。建议新增：")
+        print(f"{BULB} 当前 {host} 没有匹配的 {label}。建议新增：")
         print(f"   [install:{best['slug']}]  {best['title']}")
         print(f"   搜索词：{best['query']}")
         print("\n下一步：我可以帮你搜索并安装（需你确认）；也可先看内置能力能否直接做。")
     else:
-        print(f"💡 未匹配到现成 {label}。")
+        print(f"{BULB} 未匹配到现成 {label}。")
         print("   建议：先用内置能力试做；若确属高频任务，我再搜市场/专家推荐。")
     return 0
 
@@ -1077,16 +1262,16 @@ def cmd_discover(args):
             for root in _expand(root_tpl):
                 if not os.path.isdir(root):
                     continue
-                n = len(discover_assets(root, manifests, mode))
+                n = len(discover_assets(root, manifests, mode, quiet=True))
                 if n:
                     found[host] = (root, mode, manifests, n)
-                    print(f"  ✓ {host:<12} {n:<3} assets  mode={mode:<4} root={root}")
+                    print(f"  {OK_MARK} {host:<12} {n:<3} assets  mode={mode:<4} root={root}")
                     hit = True
                     break
             if hit:
                 break
         if not hit:
-            print(f"  ✗ {host:<12} not found")
+            print(f"  {FAIL_MARK} {host:<12} not found")
     print("-" * 80)
     if getattr(args, "write", False) and found:
         cfg = load_json(HOSTS_CFG, {}) or {}
@@ -1151,7 +1336,7 @@ def cmd_bootstrap(args):
                           "note": "auto-drafted by bootstrap from local history; review expected/judge before trusting",
                           "cases": cases})
         made += 1
-        print(f"  ✓ {aid}: {len(cases)} draft case(s) -> golden/{fn}")
+        print(f"  {OK_MARK} {aid}: {len(cases)} draft case(s) -> golden/{fn}")
     print(f"\n[ok] {made} 个 golden 草稿。下一步：人工补 expected/judge，再跑 baseline 建基线。")
     return 0
 
@@ -1170,7 +1355,11 @@ def cmd_onboard(args):
 
 
 def run(cmd):
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    # 子进程统一说 UTF-8：否则父进程按 GBK 解码、子进程按环境变量输出时，
+    # 中文报告会变成乱码或直接 UnicodeDecodeError。
+    env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONUTF8="1")
+    r = subprocess.run(cmd, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace", env=env)
     return r.returncode, r.stdout, r.stderr
 
 
@@ -1195,10 +1384,15 @@ def build_parser():
     pb.add_argument("--strict", action="store_true",
                     help="有运行时故障迹象时以退出码 1 结束（给 CI/脚本用）")
     rp = sub.add_parser("report")
-    rp.add_argument("--results", default=BASELINE)
+    rp.add_argument("--results", default=None,
+                    help="results JSON (default: <data dir>/baseline-results.json)")
     rp.add_argument("--threshold", type=int, default=20)
     rp.add_argument("--compare", default=None,
                     help="model id to compare against the baseline (required when >2 models)")
+    rp.add_argument("--promote", action="store_true",
+                    help="把本次结果合并进基线（否则报告只是报告，面板看不到）")
+    rp.add_argument("--replace", action="store_true",
+                    help="与 --promote 连用：整体替换基线，而不是按资产合并")
     sg = sub.add_parser("suggest")
     sg.add_argument("--need", required=True)
     d = sub.add_parser("discover")
@@ -1216,6 +1410,9 @@ def build_parser():
 
 def main():
     args = build_parser().parse_args()
+    use_safe_stdio()
+    # --out 必须在此之前落地：所有数据路径（registry/baseline/model/golden）都从它派生。
+    configure_data_dir(getattr(args, "out", None))
     cmd = args.cmd or "status"
     table = {
         "hosts": cmd_hosts, "setup": cmd_setup, "scan": cmd_scan, "status": cmd_status,
