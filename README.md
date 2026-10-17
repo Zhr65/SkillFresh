@@ -4,10 +4,12 @@
 
 一个零依赖的 WorkBuddy / Claude Code 风格 skill：方法论（SKILL.md）+ 三个 stdlib-only Python 脚本（指纹 / 回归 / 常驻控制台）。
 
+> 仓库名是 **SkillFresh**（skill 保鲜），代码里的项目名仍是 `skill-auditor`，npm 包名 `dsh-skill-auditor`。三者指同一个东西。
+
 ## 30 秒试一下
 
 ```bash
-git clone <本仓库> && cd skill-auditor
+git clone https://github.com/Zhr65/SkillFresh.git && cd SkillFresh
 python demo.py            # 约 13 秒，全程在 demo/ 沙盒里，不碰你的任何数据
 python demo.py --clean    # 看完删掉
 ```
@@ -67,12 +69,12 @@ cp -r skill-auditor <project>/.workbuddy-ai/skills/
 
 **2) git clone**
 ```bash
-git clone <repo-url> ~/.workbuddy-ai/skills/skill-auditor
+git clone https://github.com/Zhr65/SkillFresh.git ~/.workbuddy-ai/skills/skill-auditor
 ```
 
 **3) 技能市场**（若已发布）
 ```bash
-npx skills@latest add <owner>/skill-auditor
+npx skills@latest add Zhr65/SkillFresh
 ```
 
 > 目录名必须是 `skill-auditor`，且 `SKILL.md` 在其根目录——这是 skill 的加载约定。
