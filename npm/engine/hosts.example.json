@@ -1,0 +1,40 @@
+{
+  "default_host": "workbuddy",
+  "hosts": {
+    "workbuddy": {
+      "kind": "skill",
+      "label": "skill",
+      "root": null,
+      "discover": "dirs",
+      "manifests": ["SKILL.md"]
+    },
+    "claude-code": {
+      "kind": "skill",
+      "label": "skill",
+      "root": "~/.claude/skills",
+      "discover": "dirs",
+      "manifests": ["SKILL.md"]
+    },
+    "agents": {
+      "kind": "skill",
+      "label": "skill",
+      "root": "~/.agents/skills",
+      "discover": "dirs",
+      "manifests": ["SKILL.md"]
+    },
+    "deepseek": {
+      "kind": "plugin",
+      "label": "插件",
+      "root": "~/.dsh/profiles/desktop",
+      "discover": "deps",
+      "manifests": ["package.json", "plugin.json"]
+    },
+    "generic": {
+      "kind": "plugin",
+      "label": "asset",
+      "root": null,
+      "discover": "dirs",
+      "manifests": ["plugin.json", "manifest.json", "SKILL.md", "package.json"]
+    }
+  }
+}

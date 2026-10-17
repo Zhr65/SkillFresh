@@ -10,7 +10,11 @@
  * 白名单之外的任何东西都不会被复制。复制后再扫一遍禁用词，命中就 fail ——
  * 宁可发布失败，也不要漏一份个人数据出去。
  *
- * 用法：npm run sync   （prepack 时自动跑）
+ * 产物 engine/ **入库**（不在 .gitignore 里）：DSH 市场的 github 安装通道
+ * （installSource.kind = "github" + 固定 commit）拿到的就是仓库里这一份，
+ * 没有 prepack 可跑。所以入库这份必须和上游同步 —— 用 npm run check:engine 验。
+ *
+ * 用法：npm run sync   （prepack / pretest 时自动跑）
  */
 import fs from 'node:fs'
 import path from 'node:path'
@@ -119,10 +123,12 @@ function main() {
     : []
   for (const s of strays) problems.push(`用户数据泄漏进包：${s}`)
 
+  // 清单必须**可复现**：engine/ 现在入库（github 安装通道要靠它），
+  // 带时间戳的话每次 sync 都会产生 git diff，check-engine 就永远报「不同步」。
+  // 溯源靠 version + 每文件 sha256，够了。
   const manifest = {
     name: 'dsh-skill-auditor',
     version: readVersion(),
-    built_at: new Date().toISOString(),
     source: 'skill-auditor (upstream engine)',
     fileCount: written.length,
     files: written.sort((a, b) => a.path.localeCompare(b.path)),

@@ -1,0 +1,16 @@
+{
+  "skill": "your-skill-name",
+  "fingerprint": "0000000000000000",
+  "note": "TEMPLATE — copy this file to golden/<skill>.json and replace every field with a REAL case mined from the user's history. Do not ship your filled golden sets; they contain personal prompts.",
+  "cases": [
+    {
+      "id": "case-01",
+      "polarity": "positive",
+      "type": "task",
+      "input": "<real user prompt>",
+      "expected": "<what a good result looks like>",
+      "judge": "<pass criteria — must be checkable>",
+      "provenance": "<source session id or 'synthetic'>"
+    }
+  ]
+}

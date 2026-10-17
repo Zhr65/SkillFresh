@@ -1,5 +1,11 @@
-# 生成物，不入库（由 scripts/sync-engine.mjs 从上游 skill-auditor 同步）
-engine/
+# engine/ **入库**，不要 ignore。
+#
+# 原因：DSH 市场的 github 安装通道（catalog 条目 installSource.kind = "github"
+# + 固定 40 位 commit）装的就是仓库里这一份，没有 prepack 会替你跑 sync-engine。
+# 忽略它 → 那条通道装出来的包没有引擎，插件一调用就失败。
+#
+# 内容由 scripts/sync-engine.mjs 生成（白名单 + 路径脱敏 + 禁用词扫描），
+# 改上游脚本后必须重跑 `npm run sync` 并提交；`npm run check:engine` 会拦。
 
 node_modules/
 *.tgz
