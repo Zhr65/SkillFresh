@@ -616,6 +616,86 @@ def cmd_setup(args):
     return 0
 
 
+def infer_model_stamp():
+    """尽力从本机真实数据源推断当前模型串。返回 (version, source, confidence)。
+
+    原则：**推断不到就返回 None，绝不猜**。一个编造的模型戳比没有戳更糟——
+    它会让 check 永远说"无需重跑"（假绿灯）。
+
+    已核实的本机情况：DSH settings.json / models.json 无模型字段；
+    DSH sessions 的 jsonl 没有 model 字段；桌面日志（desktop-next.log）也不打模型串。
+    所以这台机器上默认推断不到 —— 这是事实，会明确说出来，而不是退化成猜。
+    """
+    candidates = [
+        # (来源, 取值, 置信度) —— 按可信度排序
+        ("env:SKILL_AUDITOR_MODEL", os.environ.get("SKILL_AUDITOR_MODEL"), "high"),
+        ("env:CURRENT_MODEL", os.environ.get("CURRENT_MODEL"), "high"),
+        ("env:MODEL_VERSION", os.environ.get("MODEL_VERSION"), "high"),
+        ("env:OPENAI_MODEL", os.environ.get("OPENAI_MODEL"), "medium"),
+    ]
+    for src, val, conf in candidates:
+        if val and val.strip():
+            return val.strip(), src + "（宿主进程注入的环境变量）", conf
+
+    # settings.json 里的显式 model 字段（不猜键名，只认明确的 model/modelVersion）
+    for cfg in ("~/.dsh/settings.json", "~/.workbuddy-ai/settings.json"):
+        p = os.path.expanduser(cfg)
+        data = load_json(p, None) if os.path.exists(p) else None
+        if not isinstance(data, dict):
+            continue
+        for key in ("model", "modelVersion", "currentModel", "activeModel"):
+            v = data.get(key)
+            if isinstance(v, str) and v.strip():
+                return v.strip(), f"{cfg}:{key}", "medium"
+            if isinstance(v, dict) and v.get("id"):
+                return str(v["id"]).strip(), f"{cfg}:{key}.id", "medium"
+
+    # DSH 桌面日志里显式打了模型串的行（本机当前没有，但宿主以后可能打）
+    prof = HOST_PROFILES.get("deepseek", {})
+    for pat in (prof.get("logs") or []):
+        for path in sorted(glob.glob(os.path.expanduser(pat)),
+                           key=lambda x: -os.path.getmtime(x))[:1]:
+            try:
+                with open(path, encoding="utf-8", errors="replace") as fh:
+                    tail = fh.readlines()[-500:]
+            except OSError:
+                continue
+            for line in tail:
+                m = re.search(r"(?:model|modelVersion|current_model)\D{0,6}"
+                              r"([A-Za-z0-9][A-Za-z0-9._/-]{4,40})", line)
+                if m and not line.startswith("[skip]"):
+                    return m.group(1), f"log:{os.path.basename(path)}", "low"
+    return None, None, None
+
+
+def cmd_stamp(args):
+    """stamp [--infer]：写模型戳。--infer 时先尝试从本机推断，推断不到就拒绝。"""
+    host, _ = resolve_host(args)
+    if getattr(args, "infer", False):
+        ver, source, conf = infer_model_stamp()
+        if not ver:
+            print(f"{WARN_MARK} 推断不到当前模型版本 —— 没有写戳（猜一个假戳会让 check 永远说「无需重跑」）")
+            print("   已检查并在本机为空的来源：")
+            print("     · 环境变量 SKILL_AUDITOR_MODEL / CURRENT_MODEL / MODEL_VERSION")
+            print("     · ~/.dsh/settings.json、~/.workbuddy-ai/settings.json 的 model 字段")
+            print("     · ~/.dsh/logs/*.log 里的模型串（desktop-next.log 目前不打）")
+            print("   两种正确做法：")
+            print("     a) 平台侧注入：宿主启动时写 SKILL_AUDITOR_MODEL 环境变量，再跑 stamp --infer")
+            print("     b) 手动：python console.py --host %s stamp <版本号>" % host)
+            return 2
+        print(f"[infer] 从 {source} 推断出模型串（置信度 {conf}）：{ver}")
+    else:
+        ver = args.version
+        if not ver:
+            print("[err] stamp 需要一个版本号：stamp <版本号>，或用 stamp --infer 尝试推断")
+            return 2
+    write_json(model_stamp_path(host), {"version": ver, "bumped_at": now_iso(),
+                                        "note": "stamp"})
+    print(f"[ok] {host} 的模型戳 -> {ver}（{os.path.basename(model_stamp_path(host))}）")
+    print(f"     下一步：python console.py --host {host} check")
+    return 0
+
+
 def cmd_scan(args):
     host, prof = resolve_host(args)
     root = resolve_root(args, prof)
@@ -642,9 +722,13 @@ def cmd_scan(args):
             skipped += 1
             continue
         s = r["skill"]
-        d = base_by_asset.setdefault(s, {"n": 0, "pass": 0})
+        d = base_by_asset.setdefault(s, {"n": 0, "pass": 0, "k_total": 0, "min_k": None})
         d["n"] += 1
         d["pass"] += 1 if r.get("passed") else 0
+        k = r.get("k")
+        if k:
+            d["k_total"] += k
+            d["min_k"] = k if d["min_k"] is None else min(d["min_k"], k)
 
     golden_assets = set()
     if os.path.isdir(GOLDEN_DIR):
@@ -659,10 +743,11 @@ def cmd_scan(args):
     out_assets = {}
     for a in assets:
         name = a["id"]
-        b = base_by_asset.get(name, {"n": 0, "pass": 0})
+        b = base_by_asset.get(name, {"n": 0, "pass": 0, "k_total": 0, "min_k": None})
         n, p = b["n"], b["pass"]
         rate = (p / n) if n else None
         has_golden = name in golden_assets
+        min_k = b.get("min_k")
 
         if n == 0:
             status = "unverified"
@@ -694,6 +779,8 @@ def cmd_scan(args):
             "baseline_n": n,
             "baseline_pass": p,
             "baseline_rate": rate,
+            "baseline_min_k": min_k,
+            "baseline_runs": b.get("k_total") or 0,
             "has_golden": has_golden,
             "status": status,
             "recommendation": rec,
@@ -758,18 +845,24 @@ def cmd_status(args):
     names = list(reg_assets(reg).keys())
     w = max([28] + [len(n) + 2 for n in names])
     print("-" * (w + 74))
-    print(f"{'asset':<{w}}{'fingerprint':<18}{'基线':<10}{'risk':<6}{'caps':<6}{'golden':<7}status")
-    print("-" * (w + 74))
+    print(f"{'asset':<{w}}{'fingerprint':<18}{'基线':<10}{'K':<6}{'risk':<6}{'caps':<6}{'golden':<7}status")
+    print("-" * (w + 80))
     for name, s in sorted(reg_assets(reg).items()):
         rate = "—" if s.get("baseline_rate") is None else f"{s['baseline_rate']*100:.0f}%"
         base = f"{s.get('baseline_pass',0)}/{s.get('baseline_n',0)} {rate}" if s.get("baseline_n") else "— —"
+        mk = s.get("baseline_min_k")
+        ktxt = (f"{mk}" + (f"×{s.get('baseline_runs')}" if s.get("baseline_runs") else "")) if mk else "—"
         tag = f" {OK_MARK}elim" if s.get("eliminated") else ""
         caps = s.get("capabilities") or {}
         caps_n = len(caps) if isinstance(caps, dict) else 0
-        print(f"{name:<{w}}{s.get('fingerprint',''):<18}{base:<10}{s.get('risk',0):<6}"
+        print(f"{name:<{w}}{s.get('fingerprint',''):<18}{base:<10}{ktxt:<6}{s.get('risk',0):<6}"
               f"{caps_n:<6}{'Y' if s.get('has_golden') else '-':<7}{s.get('status','')}{tag}")
-    print("-" * (w + 74))
-    print("  注：基线为 K=1 单次判定（多为同模型自评）；risk = 行数+工具依赖的维护面代理，不代表价值。")
+    print("-" * (w + 80))
+    # K 口径要随实际数据变化，不能写死"K=1"
+    min_k = min([s.get("baseline_min_k") for s in reg_assets(reg).values()
+                 if s.get("baseline_min_k")] or [1])
+    knote = f"K={min_k}" if min_k <= 1 else f"最小 K={min_k}（K≥3 才有统计意义，K=1 只是单次判定）"
+    print(f"  注：基线{knote}，多为同模型自评；risk = 行数+工具依赖的维护面代理，不代表价值。")
     print(f"  caps = 能力面条目数（入口/patch/工具/脚本…）；指纹口径 {reg.get('fp_algo', 'v1')}，"
           "只算能力面，不含 README/图片/锁文件。")
     print("  注：基线只统计 active_model 下的判定；换代后未重跑的资产会回到 unverified。")
@@ -1379,6 +1472,11 @@ def build_parser():
     sub.add_parser("check")
     b = sub.add_parser("bump")
     b.add_argument("version", nargs="?", default=None)
+    st = sub.add_parser("stamp")
+    st.add_argument("version", nargs="?", default=None,
+                    help="模型版本号；缺省时必须配合 --infer")
+    st.add_argument("--infer", action="store_true",
+                    help="从环境变量 / settings / 宿主日志推断模型串；推断不到则拒绝写戳")
     sub.add_parser("recommend")
     pb = sub.add_parser("probe")
     pb.add_argument("--strict", action="store_true",
@@ -1416,7 +1514,7 @@ def main():
     cmd = args.cmd or "status"
     table = {
         "hosts": cmd_hosts, "setup": cmd_setup, "scan": cmd_scan, "status": cmd_status,
-        "check": cmd_check, "bump": cmd_bump, "recommend": cmd_recommend,
+        "check": cmd_check, "bump": cmd_bump, "stamp": cmd_stamp, "recommend": cmd_recommend,
         "probe": cmd_probe,
         "report": cmd_report, "suggest": cmd_suggest,
         "discover": cmd_discover, "bootstrap": cmd_bootstrap, "onboard": cmd_onboard,

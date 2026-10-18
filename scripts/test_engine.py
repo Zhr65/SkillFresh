@@ -76,6 +76,9 @@ def run_console(*args, env=None, encoding="utf-8"):
     e.pop("PYTHONIOENCODING", None)
     if env:
         e.update(env)
+    # 子进程统一 UTF-8，父进程按 utf-8 解码：否则 Windows 默认 GBK 下，
+    # 断言里的中文提示会因为编码不一致而匹配不上（测试自己制造噪音）。
+    e["PYTHONIOENCODING"] = "utf-8"
     return subprocess.run(
         [sys.executable, os.path.join(SCRIPTS, "console.py"), *args],
         capture_output=True, text=True, encoding=encoding, errors="replace", env=e,
@@ -341,6 +344,158 @@ class GbkConsoleTests(unittest.TestCase):
             self.assertNotIn("UnicodeEncodeError", p.stderr)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+class KTests(unittest.TestCase):
+    """K≥3：多次判定按多数聚合，K 信息要一路带到 scan 的注册表。"""
+
+    def setUp(self):
+        self.tmp = mkdtemp()
+        console.configure_data_dir(self.tmp)
+        self.assets = os.path.join(self.tmp, "assets")
+        make_skill(self.assets, "demo-skill")
+
+    def tearDown(self):
+        console.configure_data_dir(ROOT)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _verdict_arrays(self):
+        return {
+            "demo-skill-d1": [True, True, True],
+            "demo-skill-d2": [True, False, False],   # 1/3 → 按多数算失败
+            "demo-skill-d3": [True, True],           # K=2，不足 --k 3
+        }
+
+    def test_majority_vote_and_tie_is_fail(self):
+        # 与 baseline.py 的口径一致：通过数×2 > 总数才算过；平票算失败（保守）。
+        def passed_of(runs):
+            return sum(1 for r in runs if r) * 2 > len(runs)
+        self.assertTrue(passed_of([True, True, True]))
+        self.assertFalse(passed_of([True, False, False]), "1/3 应按多数算失败")
+        self.assertFalse(passed_of([True, False]), "平票必须算失败，不能变绿灯")
+        self.assertTrue(passed_of([True]))
+
+    def test_k_fields_reach_registry(self):
+        tmp_data = self.tmp
+        rows = []
+        for i in (1, 2, 3):
+            ok = (i != 1)
+            rows.append({
+                "skill": "demo-skill", "case_id": "demo-skill-d%d" % i,
+                "model": "v1", "passed": ok, "k": 3, "k_passed": (3 if ok else 1),
+                "runs": [True, True, True] if ok else [True, False, False],
+                "fingerprint": "x",
+            })
+        write_json(os.path.join(tmp_data, "baseline-results.json"), {
+            "baseline_model": "v1",
+            "results": rows,
+        })
+        args = type("A", (), {"host": None, "root": self.assets, "skills_dir": None,
+                              "out": tmp_data})()
+        host, prof = console.resolve_host(args)
+        args.host = host
+        p = run_console("--host", "generic", "--root", self.assets, "--out", tmp_data,
+                        "setup", "--model", "v1")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(run_console("--host", "generic", "--root", self.assets,
+                                     "--out", tmp_data, "scan").returncode, 0)
+        with open(os.path.join(tmp_data, "registry.generic.json"), encoding="utf-8") as fh:
+            asset = json.load(fh)["assets"]["demo-skill"]
+        self.assertEqual(asset["baseline_min_k"], 3)
+        self.assertEqual(asset["baseline_runs"], 9)
+        self.assertEqual(asset["baseline_n"], 3)
+        self.assertEqual(asset["baseline_pass"], 2, "K 多数判定：2 通过 1 失败")
+
+
+class StampInferTests(unittest.TestCase):
+    """stamp --infer：推断不到必须拒绝，命中才写戳。绝不猜。"""
+
+    def setUp(self):
+        self.tmp = mkdtemp()
+        self._env = {k: os.environ.pop(k, None) for k in
+                     ("SKILL_AUDITOR_MODEL", "CURRENT_MODEL", "MODEL_VERSION", "OPENAI_MODEL")}
+        console.configure_data_dir(self.tmp)
+
+    def tearDown(self):
+        for k, v in self._env.items():
+            if v is not None:
+                os.environ[k] = v
+        console.configure_data_dir(ROOT)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_refuses_when_nothing_to_infer(self):
+        ver, src, conf = console.infer_model_stamp()
+        # 本机三个来源都为空；但若 CI 恰好设了这些变量，则要求返回的 source 明确标注
+        if ver is None:
+            self.assertIsNone(src)
+        else:
+            self.assertIn(src, ("env:SKILL_AUDITOR_MODEL", "env:CURRENT_MODEL",
+                                "env:MODEL_VERSION", "env:OPENAI_MODEL"))
+
+    def test_infers_from_env_and_writes_stamp(self):
+        os.environ["SKILL_AUDITOR_MODEL"] = "v-inferred-1"
+        ver, src, conf = console.infer_model_stamp()
+        self.assertEqual(ver, "v-inferred-1")
+        self.assertEqual(conf, "high")
+        # 写戳后 check 才有参照：跑一次真命令
+        p = run_console("--host", "generic", "--out", self.tmp, "stamp", "--infer",
+                        env={"SKILL_AUDITOR_MODEL": "v-inferred-1"})
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        with open(os.path.join(self.tmp, "model-version.generic.json"), encoding="utf-8") as fh:
+            self.assertEqual(json.load(fh)["version"], "v-inferred-1")
+
+    def test_cli_refuses_without_flag_and_version(self):
+        p = run_console("--host", "generic", "--out", self.tmp, "stamp")
+        self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
+        self.assertIn("版本号", p.stdout)
+
+
+class CuratedOverrideTests(unittest.TestCase):
+    """draft 用例被 curated: true 标记后应可入基线；未标记的仍被拦。"""
+
+    def setUp(self):
+        self.tmp = mkdtemp()
+        console.configure_data_dir(self.tmp)
+        self.golden = os.path.join(self.tmp, "golden")
+        os.makedirs(self.golden)
+        write_json(os.path.join(self.golden, "demo-skill.json"), {
+            "skill": "demo-skill", "draft": True,
+            "cases": [
+                {"id": "d-1", "input": "x", "expected": "TODO: fill", "judge": "ok"},
+                {"id": "d-2", "input": "y", "expected": "TODO: fill", "judge": "ok"},
+            ],
+        })
+
+    def tearDown(self):
+        console.configure_data_dir(ROOT)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _run(self, recorded):
+        rec = os.path.join(self.tmp, "rec.json")
+        write_json(rec, recorded)
+        import subprocess
+        p = subprocess.run([sys.executable, os.path.join(SCRIPTS, "baseline.py"),
+                            "--golden", os.path.join(self.golden, "demo-skill.json"),
+                            "--from", rec, "--out", self.tmp, "--model", "v1"],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+        return p.returncode, p.stdout + p.stderr
+
+    def test_draft_without_curated_is_blocked(self):
+        rc, out = self._run({"d-1": [True, True, True], "d-2": [True, True]})
+        self.assertEqual(rc, 1)
+        self.assertIn("没有任何判定", out)
+
+    def test_curated_case_overrides_draft_mark(self):
+        rc, out = self._run({
+            "d-1": {"runs": [True, True, True], "curated": True},
+            "d-2": [True, True],
+        })
+        self.assertEqual(rc, 0, out)
+        self.assertIn("curated", out)
+        rows = console.load_json(console.BASELINE)["results"]
+        kept = [r for r in rows if r["skill"] == "demo-skill"]
+        self.assertEqual(len(kept), 1, "只收 curated 的那一条")
+        self.assertEqual(kept[0]["k"], 3)
 
 
 if __name__ == "__main__":

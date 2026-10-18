@@ -28,6 +28,7 @@ Usage:
   python baseline.py --golden golden/github.json --model v-current-2026-10-17
   python baseline.py --golden golden/*.json --from recorded.json --model v-current-2026-10-17
   python baseline.py --golden golden/*.json --from recorded.json --replace
+  python baseline.py --golden golden/github.json --from recorded-github.json --k 3   # K≥3
 """
 import os
 import sys
@@ -69,10 +70,26 @@ def main():
                     help="replace the whole baseline instead of merging by asset")
     ap.add_argument("--allow-draft", action="store_true",
                     help="include draft cases (placeholder expected/judge); off by default")
+    ap.add_argument("--k", type=int, default=0,
+                    help="要求的每个用例判定次数；不足时告警（不阻断）。0 = 不要求")
     args = ap.parse_args()
 
     configure_data_dir(args.out)
     os.makedirs(args.out, exist_ok=True)
+
+    curated_ids = set()
+    if args.recorded:
+        with open(args.recorded, encoding="utf-8-sig") as f:
+            recorded = json.load(f)
+        # recorded 文件里显式标注 curated: true 的 case，视为"已人工补完判定"，
+        # 允许覆盖草稿标记。调用方负责这个判定是真的看过，不是占位符。
+        for cid, v in recorded.items():
+            if cid.startswith("_"):
+                continue
+            if isinstance(v, dict) and v.get("curated"):
+                curated_ids.add(cid)
+    else:
+        recorded = {}
 
     cases = []
     drafts = 0
@@ -81,7 +98,8 @@ def main():
             data = load_golden(p)
             fp = data.get("fingerprint")
             for c in data.get("cases", []):
-                if is_draft(c, data) and not args.allow_draft:
+                if (is_draft(c, data) and not args.allow_draft
+                        and c["id"] not in curated_ids):
                     drafts += 1
                     continue
                 cases.append({
@@ -96,38 +114,83 @@ def main():
     if drafts:
         print(f"[skip] {drafts} 个草稿用例（draft=true 或 expected 仍是 TODO）未计入基线；"
               "补完 expected/judge 再跑，或加 --allow-draft 强制包含。")
+    if curated_ids:
+        print(f"[curated] {len(curated_ids)} 个用例在 recorded 里标了 curated: true —— "
+              "视为已人工补完判定，覆盖草稿标记")
 
-    recorded = {}
-    if args.recorded:
-        with open(args.recorded, encoding="utf-8-sig") as f:
-            recorded = json.load(f)
+    def verdicts_of(v):
+        """recorded 里一个 case 的判定值 → run 布尔列表。
+
+        兼容三种写法：
+          true                         → [True]           (K=1，旧格式)
+          [true, true, false]          → [True,True,False]  (显式 K)
+          {"runs": true} / {"runs": [..]} → 同上            (带元信息)
+        """
+        if isinstance(v, bool):
+            return [v]
+        if isinstance(v, list) and all(isinstance(x, bool) for x in v):
+            return v
+        if isinstance(v, dict):
+            r = v.get("runs", v.get("passed", True))
+            if isinstance(r, bool):
+                return [r]
+            if isinstance(r, list) and all(isinstance(x, bool) for x in r):
+                return r
+        return []
 
     if recorded:
         results = []
         missing = 0
+        short_k = 0
         for c in cases:
             if c["id"] not in recorded:
                 missing += 1
                 continue
             v = recorded[c["id"]]
+            runs = verdicts_of(v)
+            if not runs:
+                print(f"[warn] {c['id']} 的判定值无法解析（要 true / [true,false,...] / {{'runs':..}}）：{v!r}")
+                continue
+            if args.k and len(runs) < args.k:
+                short_k += 1
+            attribution = (v.get("attribution", "") if isinstance(v, dict) else "")
+            # passed = K 次多数（单次时就是它自己）。K 次平票按失败算 —— 保守口径：
+            # 不能让"说不准"变成绿灯。
+            passed = (sum(1 for r in runs if r) * 2 > len(runs))
             results.append({
                 "fingerprint": c["fingerprint"],
                 "skill": c["skill"],
                 "model": args.model,
                 "case_id": c["id"],
-                "passed": bool(v.get("passed") if isinstance(v, dict) else v),
-                "attribution": (v.get("attribution", "") if isinstance(v, dict) else ""),
+                "passed": bool(passed),
+                "k": len(runs),
+                "k_passed": sum(1 for r in runs if r),
+                "runs": runs,
+                "attribution": attribution,
             })
         if missing:
+            # 按资产合并时，本资产下没跑的用例会随旧行一起被换掉 —— 必须说清楚，
+            # 否则用户以为"只追加"，实际"覆盖面变小了"。
+            prev = load_json(BASELINE, {"results": []}) or {"results": []}
+            prev_ids = {r.get("case_id") for r in prev.get("results", [])
+                        if r.get("skill") in {c["skill"] for c in cases}}
+            have = {c["id"] for c in cases}
+            dropped = sorted(prev_ids - have)
+            if dropped and not args.replace:
+                print(f"[warn] {len(dropped)} 个本资产旧用例本次未跑，已随旧行移除：{', '.join(dropped)}"
+                      "（只跑部分用例 = 覆盖率下降；要保留请把它们也判定）")
             print(f"[warn] {missing} 个用例没有判定（recorded 文件里缺 id），未写入")
+        if short_k and args.k:
+            print(f"[warn] {short_k} 个用例的 K < {args.k}（判定次数不足，结论置信度低）")
         if not results:
             print("[err] 没有任何判定可写入；检查 recorded 文件的 case_id")
             return 1
         st = merge_baseline({"baseline_model": args.model, "results": results},
                             replace=args.replace)
         passed = sum(1 for r in results if r["passed"])
-        print(f"[ok] baseline-results.json -> 本次 {len(results)} 条（{passed} 通过）；"
-              f"库内共 {st['total']} 条")
+        total_runs = sum(r["k"] for r in results)
+        print(f"[ok] baseline-results.json -> 本次 {len(results)} 条（{passed} 通过，"
+              f"共 {total_runs} 次判定）；库内共 {st['total']} 条")
         print(f"     替换资产：{', '.join(st['replaced'])}")
         if st["kept"] and not args.replace:
             print(f"     保留资产：{', '.join(st['kept'])}（本轮没跑，旧模型判定）")
