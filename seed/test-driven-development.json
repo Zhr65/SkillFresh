@@ -1,0 +1,13 @@
+{
+  "skill": "test-driven-development",
+  "seed": true,
+  "note": "community seed — judge criteria are a starting point, not authority",
+  "cases": [
+    {
+      "id": "td-10",
+      "input": "我要写个函数判断字符串是不是回文，教我按 TDD 走一遍",
+      "expected": "先写失败测试，再写最小实现让它通过，再谈边界（大小写/空格/空串）；顺序不能反",
+      "judge": "是否先测试后实现；是否提到最小实现；是否覆盖边界"
+    }
+  ]
+}

@@ -4,6 +4,23 @@
 
 ## 0.5.0 — 2026-10-18
 
+### 新增：社区公共 golden 种子库 `seed/`
+
+**动机**：陌生人装上后第一眼是「一片 unverified」——他没有 golden set，也没有你的会话历史可挖。
+产品价值卡在数据积累上，而不是代码。`seed/` 把「一次性积累」变成「随包分发、人人可用」。
+
+- `seed/` 随包分发（`build_dist.py` 已纳入；`contrib/` 与同步脚本不入包）
+- `seed/index.json` 带 `schema_version: 1` 与覆盖矩阵；`seed audit` 校验 index 与真实内容自洽，
+  不一致就告警（不静默通过）
+- `console.py seed audit`：seed 覆盖矩阵 × 本机已装资产，逐条标「可跑 / 你没装这个资产」
+- `baseline.py --from-seed`：用 seed 建基线，**只取本机真实存在的资产**（装不上的不凑数，并列出跳过项）；
+  `--all-seed` 才包含未安装资产（多数会失败，仅用于探针）
+- `console.py seed contribute`：贡献 case，**机械脱敏**（用户名/绝对路径/会话目录/微信账号）并标
+  `scrubbed: true`；脱敏只兜已知模式，README 明确要求提 PR 前人工自查
+- 你自己的 `golden/` 永远优先于 seed（同名资产以本地为准，seed 只补空缺）
+- 初始内容：10 个通用资产 / 35 case；全部纯净（无图片引用、无绝对路径、无账号信息）
+- `seed/_sync_template.py` 是从个人 golden 迁入 seed 的参考模板（迁入即脱敏，含隐私的直接不迁）
+
 ### 修正：三处会让结论说反话的状态错误（都有回归测试）
 
 - **升级闭环闭合**：`report` 默认只写报告、不改基线，文档却让人 `report → scan`，结果面板永远不变。
@@ -109,6 +126,12 @@
   没有 headless 入口，要做得逆向 IPC 或驱动 UI —— 贵且脆，没做
 - `probe` 的盲区：插件不写日志就看不见；日志轮转后旧故障消失；从没被用过的插件没有证据；
   `info` 级故障靠关键词识别，可能漏或误报。**没有证据 ≠ 没问题**
+- **seed 判定标准是单人初版**，未经交叉评审；错判的 case 比 missing 的更伤，所以宁少而准。
+  `seed/index.json` 的 `schema_version` 现在只有 1 —— 将来加 `schema_version: 2` 时要有迁移路径，
+  否则老 seed 会被静默当成新格式
+- **发布**：0.5.0 已就绪（`npm test` 双 PASS、dist 含 seed/、catalog 已重钉），但 npm 账号 2FA 策略
+  导致 CLI 直发被拒（账号只有 Security Key 一种 2FA，CLI 不可用；Bypass-2FA token 2027 起被限制）。
+  当前走 github commit 安装通道（市场 `installSource` 仍指向 `4979688`）。npm 直发未完成 —— 别当成已发布
 
 ## 0.4.0 — 2026-10-17
 

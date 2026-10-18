@@ -1,0 +1,13 @@
+{
+  "skill": "brainstorming",
+  "seed": true,
+  "note": "community seed — judge criteria are a starting point, not authority",
+  "cases": [
+    {
+      "id": "br-10",
+      "input": "我想做个给程序员用的周报生成器，帮我想想可以做成什么样",
+      "expected": "给出多个差异化方向（每个说清目标用户、输入输出、与常见方案的区别），并指出哪些假设需要用户确认",
+      "judge": "方向数量≥3 且彼此不同；是否区分'已验证'与'猜测'；没有把猜测说成事实"
+    }
+  ]
+}

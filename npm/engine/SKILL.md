@@ -227,8 +227,8 @@ Registry stores: skill path, fingerprint, version, golden-set location, model-ve
 
 - `python scripts/fingerprint.py <assets_dir> [--out <dir>]` → emits `fingerprint-report.json` + a ranked MVP-candidate list (risk heuristic, pending real usage telemetry). Report only; it does not write the registry. Output defaults to the skill root, not the scanned directory.
 - `python scripts/regress.py --results <results.json> [--compare <model>] [--out <dir>]` → emits the pass-rate matrix, degradation flags (threshold + no case improved), and `FINGERPRINT-DRIFT` rows. `--compare` is required when the results file holds more than two models.
-- `python scripts/baseline.py --golden <files...> [--from recorded.json] [--replace] [--allow-draft]` → scaffold a replay checklist, or merge recorded verdicts into the baseline **by asset** (other assets are kept and reported).
-- `python scripts/console.py --host <workbuddy|claude-code|deepseek|agents|generic> {hosts|discover|setup|scan|status|check|bump|recommend|report|probe|suggest|bootstrap|onboard}` → the host-agnostic resident console. `report --promote` merges a fresh replay into the baseline so the panel sees it; `probe` reads host logs; `discover` auto-finds host roots; `bootstrap` drafts golden sets from the user's own history; `onboard` chains discover+scan+bootstrap. `--out` relocates **all** data files. See `USAGE.md`.
+- `python scripts/baseline.py --golden <files...> --from recorded.json [--replace] [--allow-draft]` → scaffold a replay checklist, or merge recorded verdicts into the baseline **by asset** (other assets are kept and reported). `--from-seed` builds a baseline from the bundled community `seed/`, taking only assets actually installed on this machine. Draft/TODO cases are skipped unless `--allow-draft` or `"curated": true`.
+- `python scripts/console.py --host <workbuddy|claude-code|deepseek|agents|generic> {hosts|discover|setup|scan|status|check|bump|stamp|seed|recommend|report|probe|suggest|bootstrap|onboard}` → the host-agnostic resident console. `report --promote` merges a fresh replay into the baseline so the panel sees it; `stamp --infer` tries to infer the model string and **refuses to guess** when it cannot; `seed audit` shows community-seed coverage (and flags index drift), `seed contribute` adds a scrubbed case; `probe` reads host logs; `discover` auto-finds host roots; `bootstrap` drafts golden sets from the user's own history; `onboard` chains discover+scan+bootstrap. `--out` relocates **all** data files. See `USAGE.md`.
 
 Model-change stamps are per host (`model-version.<host>.json`); the legacy single `model-version.json` is still read as a fallback. `scan` only counts baseline rows whose model equals the active stamp — after a model switch, un-rerun assets go back to `unverified` instead of showing a false green.
 
@@ -236,9 +236,11 @@ Model-change stamps are per host (`model-version.<host>.json`); the legacy singl
 
 - Reporting "dumber" without an unchanged fingerprint (can't separate model drift from skill edits).
 - Hand-writing the golden set instead of mining history (biased, stale, unscalable).
+- Treating the community `seed/` as authority: its judge criteria are a first-pass starting point.
 - Judging "good" by a single success-rate score, ignoring cost and fit.
 - Auto-deleting or auto-installing — always require user confirmation; recommend disable/archive before delete.
 
 ## Next Step
 
-For the first run: pick 3–5 most-used skills, mine 5+ positives each into a golden set, build the baseline fingerprint + pass rate, then re-run on the next model bump. If ≥1 shows significant degradation or high volatility → demand is validated; expand to all 20.
+**First run on a fresh machine**: `console.py seed audit` → `console.py baseline --from-seed` → run the scaffold → record verdicts → `scan` → `status`. That gets from "all unverified" to real judgements in minutes without writing a single golden case by hand.
+Then for the assets you care about: mine 5+ positives each from your own history into `golden/`, re-baseline with `--k 3`, and re-run on every model bump.

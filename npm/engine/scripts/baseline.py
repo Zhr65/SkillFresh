@@ -41,7 +41,7 @@ ROOT = os.path.dirname(HERE)                 # .../skill-auditor (data dir by de
 sys.path.insert(0, HERE)
 
 from console import (  # noqa: E402
-    configure_data_dir, write_json, merge_baseline,
+    configure_data_dir, write_json, merge_baseline, seed_cases, load_registry, reg_assets,
 )
 
 
@@ -60,7 +60,14 @@ def is_draft(case, golden):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--golden", required=True, nargs="+", help="golden set JSON file(s)")
+    ap.add_argument("--golden", nargs="+", default=None,
+                    help="golden set JSON file(s)；--from-seed 时可不填")
+    ap.add_argument("--from-seed", action="store_true",
+                    help="用随包分发的社区 seed/ 用例建基线（陌生人装上就有判定可跑）")
+    ap.add_argument("--only-installed", action="store_true",
+                    help="配合 --from-seed：只取本机 registry 里真实存在的资产（默认就是这个行为）")
+    ap.add_argument("--all-seed", action="store_true",
+                    help="配合 --from-seed：包含你没装的资产（大多数 case 会失败，仅用于探针）")
     ap.add_argument("--from", dest="recorded", default=None,
                     help="recorded verdicts JSON: {case_id: true/false} (optional)")
     ap.add_argument("--out", default=ROOT,
@@ -72,6 +79,8 @@ def main():
                     help="include draft cases (placeholder expected/judge); off by default")
     ap.add_argument("--k", type=int, default=0,
                     help="要求的每个用例判定次数；不足时告警（不阻断）。0 = 不要求")
+    ap.add_argument("--host", default=None,
+                    help="判断\"你装了哪些资产\"时用哪个宿主的注册表（--from-seed 时有效）")
     args = ap.parse_args()
 
     configure_data_dir(args.out)
@@ -91,25 +100,66 @@ def main():
     else:
         recorded = {}
 
+    if args.from_seed and args.golden:
+        print("[err] --from-seed 和 --golden 二选一，别混用")
+        return 2
+    if not args.from_seed and not args.golden:
+        print("[err] 要么给 --golden <文件>，要么给 --from-seed")
+        return 2
+    if args.only_installed and args.all_seed:
+        print("[err] --only-installed 与 --all-seed 互斥")
+        return 2
+
     cases = []
     drafts = 0
-    for g in args.golden:
-        for p in sorted(glob.glob(g)):
-            data = load_golden(p)
-            fp = data.get("fingerprint")
-            for c in data.get("cases", []):
-                if (is_draft(c, data) and not args.allow_draft
-                        and c["id"] not in curated_ids):
-                    drafts += 1
-                    continue
+    if args.from_seed:
+        seeds = seed_cases()
+        if not seeds:
+            print("[err] 这个包里没有 seed/ 或 seed 里没有可用 case")
+            return 1
+        installed = set()
+        if not args.all_seed:
+            reg = load_registry(args.host) if getattr(args, "host", None) else None
+            if reg is None:
+                # 没指定 host 时用默认宿主的注册表
+                import console as _c
+                cfg = _c.load_hosts_config()
+                reg = load_registry(cfg.get("default_host", "workbuddy"))
+            installed = set(reg_assets(reg).keys()) if reg else set()
+            if not installed:
+                print("[err] 本机还没有注册表（先 scan），无法判断你装了哪些资产；"
+                      "确认要包含未安装资产请加 --all-seed")
+                return 1
+        usable = {s: c for s, c in seeds.items() if args.all_seed or s in installed}
+        for skill in sorted(usable):
+            for c in usable[skill]:
                 cases.append({
-                    "skill": data["skill"],
-                    "fingerprint": fp,
-                    "id": c["id"],
-                    "input": c.get("input", ""),
-                    "judge": c.get("judge", ""),
-                    "provenance": c.get("provenance", ""),
+                    "skill": skill, "fingerprint": None, "id": c["id"],
+                    "input": c.get("input", ""), "judge": c.get("judge", ""),
+                    "provenance": c.get("provenance", "seed"), "seed": True,
                 })
+        skipped = sorted(set(seeds) - set(usable))
+        print(f"[seed] {len(cases)} case / {len(usable)} 资产（随包社区种子库）")
+        if skipped and not args.all_seed:
+            print(f"       跳过你没装的 {len(skipped)} 个资产：{', '.join(skipped)}")
+    else:
+        for g in args.golden:
+            for p in sorted(glob.glob(g)):
+                data = load_golden(p)
+                fp = data.get("fingerprint")
+                for c in data.get("cases", []):
+                    if (is_draft(c, data) and not args.allow_draft
+                            and c["id"] not in curated_ids):
+                        drafts += 1
+                        continue
+                    cases.append({
+                        "skill": data["skill"],
+                        "fingerprint": fp,
+                        "id": c["id"],
+                        "input": c.get("input", ""),
+                        "judge": c.get("judge", ""),
+                        "provenance": c.get("provenance", ""),
+                    })
 
     if drafts:
         print(f"[skip] {drafts} 个草稿用例（draft=true 或 expected 仍是 TODO）未计入基线；"

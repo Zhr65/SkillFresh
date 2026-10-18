@@ -498,5 +498,86 @@ class CuratedOverrideTests(unittest.TestCase):
         self.assertEqual(kept[0]["k"], 3)
 
 
+class SeedTests(unittest.TestCase):
+    """社区 seed：库须随包带、无隐私、from-seed 只取已装、audit 认宿主、contribute 脱敏。"""
+
+    def setUp(self):
+        self.tmp = mkdtemp()
+        console.configure_data_dir(self.tmp)
+        self.assets = os.path.join(self.tmp, "assets")
+        os.makedirs(self.assets)
+
+    def tearDown(self):
+        console.configure_data_dir(ROOT)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_seed_library_ships(self):
+        seeds = console.seed_cases()
+        self.assertTrue(seeds, "包里应该带社区 seed/")
+        for skill, cases in seeds.items():
+            self.assertTrue(cases)
+            for c in cases:
+                self.assertTrue(c.get("id"))
+                exp = str(c.get("expected", "")).strip()
+                self.assertTrue(exp, "%s/%s 缺 expected" % (skill, c["id"]))
+                self.assertFalse(exp.upper().startswith("TODO"),
+                                 "%s/%s expected 还是占位符" % (skill, c["id"]))
+
+    def test_seed_has_no_private_leak(self):
+        for skill, cases in console.seed_cases().items():
+            for c in cases:
+                blob = json.dumps(c, ensure_ascii=False)
+                for bad in ("zhr15", "xwechat", "WorkBuddy AI/", "C:\\\\Users"):
+                    self.assertNotIn(bad, blob, "seed 泄漏隐私：%s" % bad)
+
+    def test_audit_uses_given_host_data_dir(self):
+        p = run_console("--host", "generic", "--root", self.assets, "--out", self.tmp,
+                        "setup", "--model", "v1")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        run_console("--host", "generic", "--root", self.assets, "--out", self.tmp, "scan")
+        p = run_console("--host", "generic", "--out", self.tmp, "seed", "audit")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("seed 合计", p.stdout)
+        self.assertNotIn("registry.workbuddy.json", p.stdout,
+                         "seed audit 读错了宿主的注册表（二级子命令把 --host 清成 None）")
+
+    def test_from_seed_without_assets_refuses(self):
+        p = run_console("--host", "generic", "--root", self.assets, "--out", self.tmp,
+                        "setup", "--model", "v1")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        run_console("--host", "generic", "--root", self.assets, "--out", self.tmp, "scan")
+        p = run_console("--host", "generic", "--out", self.tmp, "baseline",
+                        "--from-seed", "--host", "generic")
+        self.assertEqual(p.returncode, 2, "没有已装资产必须报错，不能凑数")
+
+    def test_index_is_consistent(self):
+        ok, problems = console.seed_audit_consistency()
+        self.assertTrue(ok, "index.json 与 seed/ 不一致：%s" % "; ".join(problems))
+
+    def test_contribute_scrubs(self):
+        # 真实 seed/ 在仓库里（可写），跑完清理，避免污染
+        path = os.path.join(console.SEED_DIR, "contrib", "demo-d-1.json")
+        try:
+            p = run_console("--host", "generic", "--out", self.tmp, "seed", "contribute",
+                            "--skill", "demo", "--case-id", "d-1",
+                            "--input", "看下 C:\\Users\\zhr15\\foo 里有什么",
+                            "--expected", "基于真实读取作答",
+                            "--judge", "未编造")
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            self.assertTrue(os.path.isfile(path))
+            with open(path, encoding="utf-8") as fh:
+                doc = json.load(fh)
+            c = doc["cases"][0]
+            self.assertNotIn("zhr15", c["input"])
+            self.assertIn("<home>", c["input"])
+            self.assertTrue(c.get("scrubbed"))
+        finally:
+            if os.path.isfile(path):
+                os.remove(path)
+            contrib = os.path.dirname(path)
+            if os.path.isdir(contrib) and not os.listdir(contrib):
+                os.rmdir(contrib)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

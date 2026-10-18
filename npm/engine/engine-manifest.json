@@ -21,23 +21,23 @@
     },
     {
       "path": "README.md",
-      "bytes": 11790,
-      "sha256": "ae0e6788d45456e1392fe3e5057765ce7d02cc038ce42eacbe113d93e5c79a35"
+      "bytes": 12879,
+      "sha256": "cf64f5aa8910c5a5d889603635318621afd757aab7151a20170ea097fe1cd661"
     },
     {
       "path": "scripts/baseline.py",
-      "bytes": 9490,
-      "sha256": "9ab5248a42fb466994472d421d0d247dc9eb27bd0da3a39fd568e64a6ee12052"
+      "bytes": 12327,
+      "sha256": "290324edb0583d9009511a2c29f1a9b5a86e1577536b7a8d9b86feb823c23ae0"
     },
     {
       "path": "scripts/build_dist.py",
-      "bytes": 2449,
-      "sha256": "0e1696d5b332efed00fdc3cb708692423a08fd1732c9e561a0615b88e0627dc1"
+      "bytes": 3318,
+      "sha256": "c0be3099f8142916e4f14ea48e3a18df7bbd5fd286d192695c026e620c72ad18"
     },
     {
       "path": "scripts/console.py",
-      "bytes": 65789,
-      "sha256": "c54fbca4b2af87ed4ddbc78178c6cfc66ee0a76efe6de76d2d01774cfd800b95"
+      "bytes": 73250,
+      "sha256": "95db8c01c50bf7955ca24a2d886ccba873bbc41828260c810a04c0e24991e834"
     },
     {
       "path": "scripts/fingerprint.py",
@@ -56,13 +56,13 @@
     },
     {
       "path": "SKILL.md",
-      "bytes": 18517,
-      "sha256": "0346b52344b79494b000f8de96bb6daa84107b682771e2ccb192933cb38b2943"
+      "bytes": 19176,
+      "sha256": "eaa5b2821426e6be6fdd8660f5d39c8a4cce6ce723b9cc9ac7a1666bebdc38f7"
     },
     {
       "path": "USAGE.md",
-      "bytes": 8187,
-      "sha256": "e41a3ff40663bdb7de478c5636ede1b69c2261577a61a888ba9692c13f954141"
+      "bytes": 10085,
+      "sha256": "d111105de09a1086874c6770d6fba78517f05681bf0e0f47acc2f384760ce37f"
     }
   ]
 }

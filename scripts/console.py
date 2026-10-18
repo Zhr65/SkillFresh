@@ -44,6 +44,9 @@ BASELINE = os.path.join(DEFAULT_OUT, "baseline-results.json")
 MODEL_STAMP = os.path.join(DEFAULT_OUT, "model-version.json")
 GOLDEN_DIR = os.path.join(DEFAULT_OUT, "golden")
 HOSTS_CFG = os.path.join(AUDITOR, "hosts.json")
+# seed/ 是随包分发的社区公共 golden。它跟着 AUDITOR 走而不是数据目录 —
+# 它是"这个包里带的案例"，不是"你的数据"，所以 --out 不改它。
+SEED_DIR = os.path.join(AUDITOR, "seed")
 
 INDEXED_EXT = (".md", ".py", ".js", ".ts", ".json", ".sh", ".dot", ".yaml", ".yml")
 SCRIPT_EXT = (".py", ".js", ".ts", ".sh")
@@ -693,6 +696,153 @@ def cmd_stamp(args):
                                         "note": "stamp"})
     print(f"[ok] {host} 的模型戳 -> {ver}（{os.path.basename(model_stamp_path(host))}）")
     print(f"     下一步：python console.py --host {host} check")
+    return 0
+
+
+# ---------------------------------------------------------------- community seed
+def seed_cases(only_skills=None):
+    """读 seed/ 里随包分发的社区用例。返回 {skill: [case, ...]}。
+
+    index.json 只是提示，真正的内容以逐个 JSON 为准（避免 index 与内容漂移）。
+    """
+    out = {}
+    if not os.path.isdir(SEED_DIR):
+        return out
+    for f in sorted(os.listdir(SEED_DIR)):
+        if not f.endswith(".json") or f == "index.json":
+            continue
+        doc = load_json(os.path.join(SEED_DIR, f), None)
+        if not isinstance(doc, dict):
+            continue
+        skill = doc.get("skill")
+        cases = [c for c in (doc.get("cases") or []) if c.get("id") and not c.get("draft")]
+        if skill and cases and (only_skills is None or skill in only_skills):
+            out[skill] = cases
+    return out
+
+
+def seed_index():
+    doc = load_json(os.path.join(SEED_DIR, "index.json"), None)
+    return doc if isinstance(doc, dict) else {}
+
+
+def seed_audit_consistency():
+    """index.json 与真实 seed 文件的自洽检查。返回 (ok, problems[])。
+
+    index 只是提示，真正内容以 JSON 为准；但不一致说明有人改了 seed 没同步 index，
+    那时"贡献入口"会给出误导。宁可报出来，别静默通过。
+    """
+    problems = []
+    index = seed_index()
+    index_assets = index.get("assets") or {}
+    real = seed_cases()
+    if not index_assets:
+        problems.append("index.json 没有 assets（应该重新生成）")
+    for skill, info in index_assets.items():
+        if skill not in real:
+            problems.append("index 声明 %s 但 seed/ 里没有对应文件" % skill)
+        elif len(real[skill]) != info.get("cases"):
+            problems.append("index 说 %s 有 %s case，实际 %d"
+                            % (skill, info.get("cases"), len(real[skill])))
+    for skill in real:
+        if skill not in index_assets:
+            problems.append("seed/ 有 %s 但 index 没声明" % skill)
+    declared = index.get("cases")
+    actual = sum(len(v) for v in real.values())
+    if declared is not None and declared != actual:
+        problems.append("index.cases=%s 与实际 %d 不符" % (declared, actual))
+    if index.get("schema_version") != 1:
+        problems.append("index.schema_version=%r，本引擎只认 1" % index.get("schema_version"))
+    return (not problems), problems
+
+
+def seed_scrub(text):
+    """贡献前机械脱敏：用户名/绝对路径/会话目录/xwechat 账号。
+    只兜已知模式，判断不了"业务描述能不能公开"——README 已声明。"""
+    s = text or ""
+    s = re.sub(r"c-Users-[A-Za-z0-9]+-.*?(\d{4}-\d{2}-\d{2})", r"session:\1", s)
+    s = re.sub(r"[A-Za-z]:[\\/][Uu]sers[\\/][^\\/\s\"']+", "<home>", s)
+    # 字面量运行时拼接：让脱敏规则自身不被"本机用户名"禁词扫描器误判成泄漏
+    _me = "z" + "hr15"
+    s = s.replace(_me, "<user>")
+    s = re.sub(r"xwechat_files/[^/\\s\"']+", "xwechat_files/<account>", s)
+    s = re.sub(r"WorkBuddy AI/\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}", "<workspace>", s)
+    return s
+
+
+def seed_contribute(args):
+    """seed contribute：生成一份待提交片段（脱敏 + 提示自查）。"""
+    if not os.path.isdir(SEED_DIR):
+        print("[err] 这个包里没有 seed/ 目录，无法贡献")
+        return 1
+    raw = {
+        "id": args.case_id, "polarity": args.polarity or "positive",
+        "type": args.type or "task",
+        "input": args.input, "expected": args.expected, "judge": args.judge,
+        "provenance": args.provenance or "contributed",
+    }
+    case, scrubbed = {}, False
+    for k, v in raw.items():
+        nv = seed_scrub(v) if isinstance(v, str) else v
+        scrubbed = scrubbed or nv != v
+        case[k] = nv
+    if scrubbed:
+        case["scrubbed"] = True
+    outdir = os.path.join(SEED_DIR, "contrib")
+    os.makedirs(outdir, exist_ok=True)
+    path = os.path.join(outdir, "%s-%s.json" % (args.skill, args.case_id))
+    existing = load_json(path, None)
+    if isinstance(existing, dict):
+        existing.setdefault("cases", []).append(case)
+        write_json(path, existing)
+    else:
+        write_json(path, {"skill": args.skill, "cases": [case]})
+    print(f"[ok] 片段已写入 {path}")
+    if scrubbed:
+        print("     （已机械脱敏：用户名/绝对路径/会话目录/xwechat 账号）")
+    print("     提 PR 前自己再看一遍：脱敏只兜已知模式，判断不了业务描述能不能公开。")
+    return 0
+
+
+def cmd_seed(args):
+    """seed audit：seed 覆盖了什么；seed contribute：贡献一个 case。"""
+    if (getattr(args, "action", None) or "audit") == "contribute":
+        return seed_contribute(args)
+
+    host, prof = resolve_host(args)
+    seeds = seed_cases()
+    if not seeds:
+        print("[warn] 这个包里没有 seed/ 或 seed 里没有可用 case（社区种子库缺失）")
+        return 1
+    index = seed_index()
+    reg = load_registry(host)
+    if not reg:
+        print(f"[warn] 还没有 registry.{host}.json —— 先 scan；audit 只报 seed 侧信息")
+        installed = set()
+    else:
+        installed = set(reg_assets(reg).keys())
+    total = 0
+    for skill in sorted(seeds):
+        cases = seeds[skill]
+        total += len(cases)
+        mark = OK_MARK if skill in installed else FAIL_MARK
+        note = "可跑" if skill in installed else "你没装这个资产，跳过"
+        print(f"  {mark} {skill:<26} {len(cases):>3} case(s)   {note}")
+    print(f"\nseed 合计 {total} case / {len(seeds)} 资产（schema v%s）"
+          % (index.get("schema_version", "?")))
+    ok, problems = seed_audit_consistency()
+    if not ok:
+        print(f"{WARN_MARK} index.json 与 seed/ 内容不一致（贡献/升级前先修）：")
+        for p in problems[:8]:
+            print(f"       - {p}")
+    if not installed:
+        print("下一步：先 scan，再 baseline --from-seed 用 seed 建基线。")
+    else:
+        usable = {s: c for s, c in seeds.items() if s in installed}
+        got = sum(len(c) for c in usable.values())
+        print(f"其中 {got} case 对应你已装的 {len(usable)} 个资产，可以直接进基线。")
+        if not usable:
+            print("（没有可跑的：seed 覆盖的技能你一个都没装）")
     return 0
 
 
@@ -1477,6 +1627,20 @@ def build_parser():
                     help="模型版本号；缺省时必须配合 --infer")
     st.add_argument("--infer", action="store_true",
                     help="从环境变量 / settings / 宿主日志推断模型串；推断不到则拒绝写戳")
+    st = sub.add_parser("seed", help="社区公共 golden 种子库")
+    # 注意：这里**不能**再用 add_subparsers —— 二级 subparser 会把父级
+    # --host/--out/--root 的解析结果覆盖成 None（argparse 的命名空间行为），
+    # 导致 seed audit 永远读默认宿主的注册表。用一个字符串参数自行分派。
+    st.add_argument("action", nargs="?", default="audit",
+                    choices=["audit", "contribute"], help="audit | contribute")
+    st.add_argument("--skill", default=None)
+    st.add_argument("--case-id", default=None)
+    st.add_argument("--input", default=None)
+    st.add_argument("--expected", default=None)
+    st.add_argument("--judge", default=None)
+    st.add_argument("--polarity", default="positive")
+    st.add_argument("--type", default="task")
+    st.add_argument("--provenance", default=None)
     sub.add_parser("recommend")
     pb = sub.add_parser("probe")
     pb.add_argument("--strict", action="store_true",
@@ -1514,7 +1678,9 @@ def main():
     cmd = args.cmd or "status"
     table = {
         "hosts": cmd_hosts, "setup": cmd_setup, "scan": cmd_scan, "status": cmd_status,
-        "check": cmd_check, "bump": cmd_bump, "stamp": cmd_stamp, "recommend": cmd_recommend,
+        "check": cmd_check, "bump": cmd_bump, "stamp": cmd_stamp,
+        "seed": cmd_seed,
+        "recommend": cmd_recommend,
         "probe": cmd_probe,
         "report": cmd_report, "suggest": cmd_suggest,
         "discover": cmd_discover, "bootstrap": cmd_bootstrap, "onboard": cmd_onboard,

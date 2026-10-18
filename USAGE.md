@@ -103,6 +103,43 @@ C="scripts/console.py"                       # 在仓库根目录执行
 - `suggest --need "帮我把这段文字去一下AI味"` → 已有 humanizer
 - `suggest --need "帮我规划一次线下婚礼流程"` → 未匹配到现成类别，建议先用内置能力试做
 
+## 新用户三步 + seed（陌生人装上不再看空表）
+
+刚装上时你名下没有 golden set、也没有自己的会话历史可挖，`status` 会一片 unverified。
+`seed/` 是**随包分发的社区公共用例库**，装上就能跑：
+
+```bash
+# ① 看 seed 覆盖了什么、其中哪些你本机能跑
+python scripts/console.py --host workbuddy seed audit
+
+# ② 用 seed 在当前模型上建基线（只取你真实装了的资产）
+python scripts/baseline.py --from-seed --host workbuddy --model <当前模型版本>
+#    生成执行清单 → 逐条判定 → 写 recorded.json → 再用 --from 收编
+
+# ③ 之后照常
+python scripts/console.py --host workbuddy scan
+python scripts/console.py --host workbuddy status        # 不再是空表
+```
+
+`--from-seed` **只取你本机真实存在的资产**（装不上的不会凑数，并明确列出跳过哪些）。
+愿意包含未安装资产做探针才加 `--all-seed`。
+
+**你的 `golden/` 永远优先于 seed**：同名资产以你的为准，seed 只补你没有的。
+
+seed 判定标准是社区初版，**不是权威**；真要当硬基线请自己复核后再 `--k 3`。
+
+## 贡献一个 case 给别人用
+
+```bash
+python scripts/console.py seed contribute \
+    --skill <资产名> --case-id <唯一id> \
+    --input "<真实 prompt>" --expected "<期望结果>" --judge "<怎么算通过>"
+```
+
+- 会做**机械脱敏**（用户名 / 绝对路径 / 会话目录 / 微信账号），并标记 `scrubbed: true`
+- 脱敏只兜已知模式，**判断不了业务描述能不能公开** —— 提 PR 前自己再看一遍
+- 判定标准写法：**可以不看模型输出就复现同一结论**。反面「回答得不错」，正面「给出两个项目的定位且各附可核实来源」
+
 ## 怎么验证它真的在工作（自检清单）
 
 数字随本机资产变化，下面以当前机器为例（22 个 WorkBuddy skill + 4 个 DSH 插件）：
@@ -123,6 +160,7 @@ C="scripts/console.py"                       # 在仓库根目录执行
 - **risk 启发式**：行数 + 工具依赖 + 捆绑代码的代理分，不代表价值；待接入真实用量遥测
   （调用次数 / 采纳率 / token）后替换为净收益公式。
 - **K 次重跑**：当前每案例 K=1、由同一模型自评；生产基线 K≥3（LLM-judge 评分类 K≥5）。
-- **golden set 覆盖**：22 个 skill 里 4 个有 golden，4 个插件里 1 个有真基线；
-  两个插件 golden（hindsight / workbuddy-connect）仍是 draft，不计入基线。
+- **golden set 覆盖**：seed 随包带 35 case / 10 资产（社区公共，见 `seed/README.md`）；
+  你自己的 `golden/` 才计入强判定。seed 是起点，不是终点。
+- **seed 判定标准**：单人初版、未经交叉评审；错判的 case 比 missing 的更伤，所以宁少而准。
 - **插件运行时**：`probe` 只能看见日志里记录过的故障；没有主动探针（DSH desktop profile 被 Electron 独占）。

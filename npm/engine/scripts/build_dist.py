@@ -26,6 +26,9 @@ SHIP_FILES = ["SKILL.md", "USAGE.md", "DISTRIBUTION.md", "README.md", "LICENSE",
               ".gitignore", "hosts.example.json", "_meta.json", "demo.py"]
 SHIP_SCRIPTS = ["console.py", "fingerprint.py", "regress.py", "baseline.py", "install.py", "build_dist.py"]
 GOLDEN_SHIP = ["README.md", "_template.json"]
+# seed/ 是社区公共 golden，陌生人装上就有判定可跑；contrib/ 是未评审的贡献片段，不入包
+SEED_SHIP = ["README.md", "index.json"]
+SEED_SKIP = {"contrib", "_sync_template.py"}
 
 
 def main():
@@ -51,6 +54,22 @@ def main():
         src = os.path.join(AUDITOR, "golden", f)
         if os.path.isfile(src):
             shutil.copy2(src, os.path.join(gdir, f))
+
+    # seed/：只发 README + index + 各资产 JSON，不发 contrib/ 与同步脚本
+    seeded = os.path.join(OUT, "seed")
+    os.makedirs(seeded)
+    for f in SEED_SHIP:
+        src = os.path.join(AUDITOR, "seed", f)
+        if os.path.isfile(src):
+            shutil.copy2(src, os.path.join(seeded, f))
+    src_seed = os.path.join(AUDITOR, "seed")
+    if os.path.isdir(src_seed):
+        for entry in sorted(os.listdir(src_seed)):
+            if entry in SEED_SKIP:
+                continue
+            p = os.path.join(src_seed, entry)
+            if os.path.isfile(p) and entry.endswith(".json"):
+                shutil.copy2(p, os.path.join(seeded, entry))
 
     zpath = os.path.join(DIST_ROOT, "skill-auditor.zip")
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:

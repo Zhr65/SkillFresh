@@ -1,0 +1,13 @@
+{
+  "skill": "dispatching-parallel-agents",
+  "seed": true,
+  "note": "community seed — judge criteria are a starting point, not authority",
+  "cases": [
+    {
+      "id": "dp-10",
+      "input": "我有三个互不依赖的查询任务，能并行吗？",
+      "expected": "判断可并行（无共享状态/无顺序依赖），说明并行边界；若任务间有依赖则指出并给出理由",
+      "judge": "是否正确识别独立性；若结论是'不可并行'，理由是否成立"
+    }
+  ]
+}

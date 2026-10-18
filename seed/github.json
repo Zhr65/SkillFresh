@@ -1,0 +1,69 @@
+{
+  "skill": "github",
+  "seed": true,
+  "note": "community seed — judge criteria are a starting point, not authority",
+  "cases": [
+    {
+      "id": "gh-01",
+      "polarity": "positive",
+      "input": "去github上看看WorkBuddy Manager 和 buddybot 是啥",
+      "type": "info-research",
+      "expected": "正确识别 WorkBuddy Manager 与 buddybot 两个项目的定位/用途，给出可核实的仓库或说明",
+      "judge": "回答是否包含对两者用途的区分且来源可核实（非编造）",
+      "provenance": "session:2026-10-12-11-25-38",
+      "scrubbed": true
+    },
+    {
+      "id": "gh-02",
+      "polarity": "positive",
+      "input": "除了这个workbuddy manager 可以进行自动签到领取积分且管理账号，trae什么的有嘛，你去github上看看",
+      "type": "info-research",
+      "expected": "在 GitHub 上检索 Trae 相关信息并回报其定位（如官方仓库/产品形态）",
+      "judge": "是否找到 Trae 相关真实信息并区分于 workbuddy manager",
+      "provenance": "session:2026-10-12-11-25-38",
+      "scrubbed": true
+    },
+    {
+      "id": "gh-03",
+      "polarity": "positive",
+      "input": "你知道github项目pojia-next、WKBD/Forges是啥嘛",
+      "type": "info-research",
+      "expected": "识别 pojia-next 与 WKBD/Forges 两个项目的性质",
+      "judge": "是否给出两个项目的可核实描述，或明确说明未找到",
+      "provenance": "session:2026-10-12-12-24-34",
+      "scrubbed": true
+    },
+    {
+      "id": "gh-04",
+      "polarity": "positive",
+      "input": "去github查一下国内最方便的记账是什么样的",
+      "type": "info-research",
+      "expected": "检索并汇总 GitHub 上国内易用的记账类项目/方案",
+      "judge": "是否给出具体项目或可落地的方案，而非泛泛而谈",
+      "provenance": "session:2026-10-13-12-12-22",
+      "scrubbed": true
+    },
+    {
+      "id": "gh-05",
+      "polarity": "positive",
+      "input": "帮我查一下workbuddy manager https://github.com/ithtelab/workbuddy-manager 这个的最新版本并帮我下到D:AI",
+      "type": "action",
+      "expected": "查到最新 release 版本号并尝试下载到 D:AI",
+      "judge": "是否回报最新版本号，且下载动作执行或明确失败原因",
+      "provenance": "session:2026-10-14-11-55-10",
+      "scrubbed": true
+    },
+    {
+      "id": "gh-10",
+      "input": "用 gh 列出 ithtelab/workbuddy-manager 这个仓库最近 5 个 release 的版本号",
+      "expected": "给出该仓库最近 5 个 release 的版本号列表（或明确说明查不到/无 release）；不编造版本号",
+      "judge": "版本号可逐一回查；查不到时明确说查不到而不是虚构"
+    },
+    {
+      "id": "gh-11",
+      "input": "帮我在 GitHub 上找一个用 Python 写的 CLI 剪贴板工具，要求 star 数别太低，给我三个候选",
+      "expected": "给出 3 个真实存在的候选（owner/repo），各自说明为什么符合条件；不编造仓库",
+      "judge": "三个仓库都真实存在；没有候选时说明没找到而非凑数"
+    }
+  ]
+}

@@ -150,11 +150,27 @@ python scripts/console.py --host workbuddy recommend
 | `report [--promote]` | 生成折旧报告；`--promote` 把结果合并进基线 |
 | `probe` | 读宿主日志，找「装得像、跑不起来」的资产 |
 | `suggest --need "<需求>"` | 无匹配 skill 时按需求推荐 |
+| `seed audit` | seed/ 覆盖了什么、哪些你本机能跑 |
+| `baseline --from-seed` | 用社区 seed 建基线（只取你装了的资产） |
+| `seed contribute` | 贡献一个 case（自动脱敏） |
 | `discover [--write]` | 探测本机各宿主资产目录，可写回 hosts.json |
 | `bootstrap [--per-asset N]` | 从本地历史生成 golden 草稿（draft，需补完） |
 | `onboard` | discover + scan + bootstrap 一键引导 |
 
 全局 `--out <dir>` 会把**所有**本地数据（registry / baseline / 模型戳 / golden 模板）放到该目录，不再散在两处。
+
+### 陌生用户先看这里
+
+装完看到一片 `unverified` 是正常的（你没有 golden set，也没有历史可挖）。`seed/` 是**随包分发的社区公共用例库**，装上就能跑：
+
+```bash
+python scripts/console.py --host workbuddy seed audit      # seed 覆盖什么
+python scripts/baseline.py --from-seed --host workbuddy --model <模型>
+python scripts/console.py --host workbuddy scan && python scripts/console.py --host workbuddy status
+```
+
+`--from-seed` 只取你**真实装了的**资产，装不上的不凑数；你自己的 `golden/` 永远优先于 seed。
+判定标准是社区初版，不是权威。
 
 ## 安全与隐私
 
@@ -166,7 +182,7 @@ python scripts/console.py --host workbuddy recommend
 
 ## 分发内容 vs 本地生成
 
-**随包分发**：`SKILL.md`、`USAGE.md`、`DISTRIBUTION.md`、`README.md`、`LICENSE`、`_meta.json`、`hosts.example.json`、`demo.py`、`scripts/*.py`（不含测试）、`golden/README.md`、`golden/_template.json`
+**随包分发**：`SKILL.md`、`USAGE.md`、`DISTRIBUTION.md`、`README.md`、`LICENSE`、`_meta.json`、`hosts.example.json`、`demo.py`、`scripts/*.py`（不含测试与 `tools/`）、`seed/*`、`golden/README.md`、`golden/_template.json`
 
 **本地生成（不打包）**：`registry.<host>.json`、`hosts.json`、`model-version*.json`、`baseline-results.json`、`recorded-*.json`、`*-report.*`、`replay/`、填好的 `golden/<skill>.json`
 
@@ -174,7 +190,8 @@ python scripts/console.py --host workbuddy recommend
 
 ## 发布前检查清单
 
-- [ ] `python scripts/test_engine.py` 全过（指纹口径 / 阈值 / 漂移 / 合并 / GBK）
+- [ ] `python scripts/test_engine.py` 全过（指纹口径 / 阈值 / 漂移 / 合并 / GBK / seed）
+- [ ] `python scripts/console.py --host workbuddy seed audit` 无「index 与 seed/ 不一致」告警
 - [ ] `python demo.py` 退出码 0（真实跑完 7 步，有断言）
 - [ ] `cd npm && npm test` 全过；`npm run check:engine` 显示一致（engine 没漂）
 - [ ] `python scripts/build_dist.py` 后抽查 `dist/` 里没有 registry / golden 实填 / hosts.json
@@ -196,13 +213,14 @@ skill-auditor/
 ├── demo.py               # 30 秒沙盒演示（有断言）
 ├── .gitignore            # 排除个人数据
 ├── scripts/
-│   ├── console.py        # 常驻控制台（含 probe / suggest / bootstrap）
+│   ├── console.py        # 常驻控制台（含 probe / suggest / seed / bootstrap）
 │   ├── fingerprint.py    # 版本指纹报告（薄包装）
 │   ├── regress.py        # 回归 + 降级/漂移判定
-│   ├── baseline.py       # 基线脚手架 + 按资产合并
+│   ├── baseline.py       # 基线脚手架 + 按资产合并 + --from-seed
 │   ├── install.py        # 装到本机各 agent 宿主（不搬个人数据）
 │   ├── test_engine.py    # 引擎回归测试（不随包分发）
 │   └── build_dist.py     # 干净打包
+├── seed/                 # 社区公共 golden（随包分发）
 ├── npm/                  # DSH 插件（6 个工具 + 入库的 engine/）
 ├── catalog/              # 市场条目 + 校验/钉 commit 脚本
 └── golden/
