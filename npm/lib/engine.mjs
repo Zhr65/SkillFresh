@@ -269,3 +269,59 @@ export function engineInfo() {
       : [],
   }
 }
+
+// ------------------------------------------------------------------ model events
+// 「模型换代事件源」的被动实现：插件常驻宿主里，每次启动都往
+// model-events.jsonl 追加一行 {ts, model, source}。模型串从宿主进程里**可见的
+// 位置**尽力提取（ctx 字段 / 环境变量），取不到就记 'unknown' —— 记 unknown
+// 是有意的：它证明"这一刻宿主在跑、插件活着"，并且一旦宿主将来暴露模型字段，
+// 事件流自动开始携带真值，stamp --infer --from-events 就能消费，无需改代码。
+// 绝不编造模型串：unknown 就是 unknown。
+
+export function detectModel(ctx) {
+  const fromEnv = process.env.SKILL_AUDITOR_MODEL || process.env.CURRENT_MODEL
+    || process.env.MODEL_VERSION || null
+  if (fromEnv) return { model: fromEnv, source: 'env' }
+  const candidates = [
+    ctx?.model, ctx?.config?.model, ctx?.config?.modelVersion,
+    ctx?.runtime?.model, ctx?.state?.model,
+  ]
+  for (const c of candidates) {
+    if (typeof c === 'string' && c.trim() && c.trim().toLowerCase() !== 'unknown') {
+      return { model: c.trim(), source: 'ctx' }
+    }
+  }
+  return { model: 'unknown', source: 'none' }
+}
+
+export function appendModelEvent(ctx) {
+  const { model, source } = detectModel(ctx)
+  try {
+    fs.mkdirSync(DATA_DIR, { recursive: true })
+    const line = JSON.stringify({
+      ts: new Date().toISOString(), model, source,
+      packageVersion: PACKAGE_VERSION,
+    })
+    fs.appendFileSync(path.join(DATA_DIR, 'model-events.jsonl'), line + '\n', 'utf8')
+    return { model, source }
+  } catch {
+    return { model, source, failed: true }
+  }
+}
+
+/** 读最近 N 条事件里最新的非 unknown 模型串（给 stamp --infer --from-events）。 */
+export function lastKnownModel(limit = 200) {
+  const p = path.join(DATA_DIR, 'model-events.jsonl')
+  try {
+    const lines = fs.readFileSync(p, 'utf8').trim().split('\n').slice(-limit)
+    for (let i = lines.length - 1; i >= 0; i--) {
+      try {
+        const o = JSON.parse(lines[i])
+        if (o.model && o.model !== 'unknown') {
+          return { model: o.model, ts: o.ts, source: `model-events.jsonl (${o.source})` }
+        }
+      } catch {}
+    }
+  } catch {}
+  return null
+}

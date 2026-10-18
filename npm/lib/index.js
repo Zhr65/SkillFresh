@@ -8,7 +8,7 @@
  * 不碰 webServer / credentials / connection —— 不注入前端、不读凭据、不开路由。
  * 引擎是本地 Python 子进程，无网络调用（bootstrap 例外，见 SKILL.md）。
  */
-import { ensureEngine, engineInfo, resolvePython, runConsole } from './engine.mjs'
+import { ensureEngine, engineInfo, resolvePython, runConsole, appendModelEvent } from './engine.mjs'
 
 const PLUGIN_NAME = 'skill-auditor'
 
@@ -203,6 +203,13 @@ export function apply(ctx) {
   }
   // 局部 inject：apply 立刻执行（不拖到所有服务就绪），工具就绪后再注册。
   ctx.inject(['tools'], register)
+  // 模型事件源（被动）：宿主每次启动都留痕。模型串现在多半是 unknown
+  // （DSH 不把模型暴露给插件 ctx），但事件流一旦出现真值，stamp --infer
+  // --from-events 就能自动消费 —— 这是「手动 bump」走向自动的过渡设计。
+  try {
+    const ev = appendModelEvent(ctx)
+    ctx.logger?.info?.(`${PLUGIN_NAME}: model event -> ${ev.model} (${ev.source})`)
+  } catch {}
 }
 
 export default { name: PLUGIN_NAME, inject, apply }

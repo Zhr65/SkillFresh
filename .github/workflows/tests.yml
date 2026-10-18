@@ -1,0 +1,48 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run engine tests
+        env:
+          # Windows runner 默认 cp1252/cp936 之外的编码；统一 UTF-8 让断言可预期
+          PYTHONIOENCODING: utf-8
+          PYTHONUTF8: "1"
+        run: python scripts/test_engine.py
+      - name: Run demo (7 steps, asserted)
+        run: python demo.py
+
+  npm:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Sync engine
+        run: npm run sync
+        working-directory: npm
+      - name: npm test (smoke + pack → install → run)
+        run: npm test
+        working-directory: npm
+      - name: check engine committed
+        run: npm run check:engine
+        working-directory: npm

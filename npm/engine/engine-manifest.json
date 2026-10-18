@@ -36,8 +36,8 @@
     },
     {
       "path": "scripts/console.py",
-      "bytes": 77340,
-      "sha256": "1b4356df4106c9e661ce1702ce0bbed0721a72a4e08118d29534bdf035cc4cae"
+      "bytes": 79374,
+      "sha256": "84e011b916e623c40bc2cc34f6f062e623dba4b0319f0c7fa0041bff682ec134"
     },
     {
       "path": "scripts/fingerprint.py",

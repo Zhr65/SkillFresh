@@ -576,6 +576,7 @@ def merge_baseline(new_doc, replace=False):
 
     models = sorted({r.get("model") for r in merged_rows if r.get("model")})
     doc = {
+        "schema_version": 1,
         "baseline_model": (new_doc.get("baseline_model") or old.get("baseline_model") or ""),
         "models": models,
         "merged_at": now_iso(),
@@ -709,10 +710,46 @@ def infer_model_stamp():
     return None, None, None
 
 
+def read_model_events(limit=200):
+    """读 DSH 插件的启动事件流（model-events.jsonl），返回最新的非 unknown 模型串。
+
+    事件流由 npm 插件在宿主每次启动时追加（engine.mjs appendModelEvent）。
+    现在 DSH 不把模型暴露给插件 ctx，事件多半是 unknown —— 记 unknown 仍是有效信号
+    （证明插件活着）；等宿主将来暴露模型字段，这里自动开始返回真值。
+    """
+    events = os.path.join(os.path.expanduser("~"), ".dsh", "skill-auditor",
+                          "model-events.jsonl")
+    if not os.path.isfile(events):
+        return None
+    best = None
+    with open(events, encoding="utf-8", errors="replace") as fh:
+        for line in fh:
+            try:
+                o = json.loads(line)
+            except Exception:
+                continue
+            m = o.get("model")
+            if m and m != "unknown":
+                best = {"model": m, "ts": o.get("ts"),
+                        "source": "model-events.jsonl (%s)" % o.get("source", "?")}
+    return best
+
+
 def cmd_stamp(args):
-    """stamp [--infer]：写模型戳。--infer 时先尝试从本机推断，推断不到就拒绝。"""
+    """stamp [--infer] [--from-events]：写模型戳。推断不到就拒绝，绝不猜。"""
     host, _ = resolve_host(args)
-    if getattr(args, "infer", False):
+    if getattr(args, "from_events", False):
+        best = read_model_events()
+        if best:
+            print(f"[infer] 从 {best['source']} 取到最近已知模型串（事件时间 {best['ts']}）：{best['model']}")
+            ver = best["model"]
+        else:
+            print(f"{WARN_MARK} model-events.jsonl 里没有已知模型串（DSH 插件启动事件全是 unknown，"
+                  "或还没有事件）。")
+            print("   这不是故障：DSH 目前不把模型暴露给插件。等宿主暴露后事件流会自动带真值，")
+            print("   或手动：python console.py --host %s stamp <版本号>" % host)
+            return 2
+    elif getattr(args, "infer", False):
         ver, source, conf = infer_model_stamp()
         if not ver:
             print(f"{WARN_MARK} 推断不到当前模型版本 —— 没有写戳（猜一个假戳会让 check 永远说「无需重跑」）")
@@ -720,6 +757,7 @@ def cmd_stamp(args):
             print("     · 环境变量 SKILL_AUDITOR_MODEL / CURRENT_MODEL / MODEL_VERSION")
             print("     · ~/.dsh/settings.json、~/.workbuddy-ai/settings.json 的 model 字段")
             print("     · ~/.dsh/logs/*.log 里的模型串（desktop-next.log 目前不打）")
+            print("     · model-events.jsonl（可用 --from-events 显式启用）")
             print("   两种正确做法：")
             print("     a) 平台侧注入：宿主启动时写 SKILL_AUDITOR_MODEL 环境变量，再跑 stamp --infer")
             print("     b) 手动：python console.py --host %s stamp <版本号>" % host)
@@ -988,6 +1026,7 @@ def cmd_scan(args):
         out_assets[name] = a
 
     registry = {
+        "schema_version": 1,
         "updated_at": now_iso(),
         "host": host,
         "kind": prof["kind"],
@@ -1685,6 +1724,8 @@ def build_parser():
                     help="模型版本号；缺省时必须配合 --infer")
     st.add_argument("--infer", action="store_true",
                     help="从环境变量 / settings / 宿主日志推断模型串；推断不到则拒绝写戳")
+    st.add_argument("--from-events", action="store_true",
+                    help="从 DSH 插件的 model-events.jsonl 取最近已知模型串")
     st = sub.add_parser("seed", help="社区公共 golden 种子库")
     # 注意：这里**不能**再用 add_subparsers —— 二级 subparser 会把父级
     # --host/--out/--root 的解析结果覆盖成 None（argparse 的命名空间行为），

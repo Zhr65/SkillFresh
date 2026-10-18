@@ -656,5 +656,81 @@ class SuggestionTestsExtra(unittest.TestCase):
             self.assertTrue(t.get("worth"), "%s 缺 worth（值不值得装）" % t["slug"])
 
 
+class SchemaVersionTests(unittest.TestCase):
+    """registry / baseline 写入时带 schema_version（格式演进不再静默失败）。"""
+
+    def setUp(self):
+        self.tmp = mkdtemp()
+        console.configure_data_dir(self.tmp)
+        self.assets = os.path.join(self.tmp, "assets")
+        make_skill(self.assets, "demo-skill")
+
+    def tearDown(self):
+        console.configure_data_dir(ROOT)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_registry_has_schema_version(self):
+        p = run_console("--host", "generic", "--root", self.assets, "--out", self.tmp,
+                        "setup", "--model", "v1")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        run_console("--host", "generic", "--root", self.assets, "--out", self.tmp, "scan")
+        with open(os.path.join(self.tmp, "registry.generic.json"), encoding="utf-8") as fh:
+            reg = json.load(fh)
+        self.assertEqual(reg.get("schema_version"), 1)
+
+    def test_baseline_has_schema_version(self):
+        console.merge_baseline({"baseline_model": "v1", "results": [
+            {"skill": "a", "case_id": "c1", "model": "v1", "passed": True, "k": 1},
+        ]})
+        doc = console.load_json(console.BASELINE)
+        self.assertEqual(doc.get("schema_version"), 1)
+
+
+class ModelEventTests(unittest.TestCase):
+    """事件流：engine.mjs 写、console.py 读。unknown 不算已知模型串。"""
+
+    def setUp(self):
+        self.tmp = mkdtemp()
+        console.configure_data_dir(self.tmp)
+
+    def tearDown(self):
+        console.configure_data_dir(ROOT)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_from_events_refuses_without_known_model(self):
+        # 沙盒 HOME 下没有 ~/.dsh/skill-auditor/model-events.jsonl → 拒绝
+        p = run_console("--host", "generic", "--out", self.tmp, "stamp", "--from-events")
+        self.assertEqual(p.returncode, 2, p.stdout + p.stderr)
+        self.assertIn("没有已知模型串", p.stdout)
+
+
+class NodePluginTests(unittest.TestCase):
+    """npm 插件的模型事件写入（detectModel / appendModelEvent / lastKnownModel）。"""
+
+    def test_detect_and_append(self):
+        import subprocess
+        tmp = mkdtemp()
+        try:
+            script = (
+                "import { appendModelEvent, lastKnownModel } from './lib/engine.mjs';\n"
+                "process.env.SKILL_AUDITOR_HOME = %r;\n"
+                "const r1 = appendModelEvent({ model: 'v-test-9' });\n"
+                "const r2 = appendModelEvent({});\n"
+                "const best = lastKnownModel();\n"
+                "console.log(JSON.stringify({ r1: r1.model, r2: r2.model, best: best && best.model }));\n"
+            ) % tmp
+            npm_root = os.path.join(ROOT, "npm")
+            p = subprocess.run(["node", "--input-type=module", "-e", script],
+                               capture_output=True, text=True, encoding="utf-8",
+                               errors="replace", cwd=npm_root,
+                               env=dict(os.environ, SKILL_AUDITOR_HOME=tmp))
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            self.assertIn('"r1":"v-test-9"', p.stdout)
+            self.assertIn('"r2":"unknown"', p.stdout, "取不到模型时记 unknown，不猜")
+            self.assertIn('"best":"v-test-9"', p.stdout, "lastKnownModel 跳过 unknown 取真值")
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
