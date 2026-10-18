@@ -185,37 +185,60 @@ HOST_PROFILES = {
                 "manifests": ["plugin.json", "manifest.json", "SKILL.md", "package.json"]},
 }
 
+# 需求分类表：命中不了 = 用户得不到推荐。
+# 设计约束：
+#   · kw 要覆盖**用户真正会说的口语**，不只是术语。「设计一个app的界面」要命中，
+#     不能只认「前端/网页」这种工程师说法
+#   · where：去哪搜（DSH 市场 / SkillHub / GitHub），别让 Agent 瞎找
+#   · worth：这条推荐值不值得装 —— 一次性需求直接说「用内置能力做就行」
 TAXONOMY = [
+    {"slug": "ui-design", "title": "UI / 界面 / 视觉设计",
+     "kw": ["设计", "界面", "app", "应用界面", "移动端", "小程序", "原型", "ui", "ux",
+            "视觉", "配色", "布局", "交互稿", "线框图", "mockup", "设计稿", "皮肤"],
+     "query": "UI 设计 app 界面 mockup",
+     "where": "SkillHub（office/frontend 类）+ GitHub",
+     "worth": "一次性原型用内置能力做；要反复产出设计稿才值得装"},
     {"slug": "humanizer", "title": "humanizer（去 AI 味 / 润色改写）",
      "kw": ["去ai", "ai味", "润色", "改写", "口语化", "人味", "natural", "humanize", "文风", "语气"],
-     "query": "humanizer 去AI味 写作"},
+     "query": "humanizer 去AI味 写作", "where": "SkillHub", "worth": "高频写作才值得"},
     {"slug": "finance", "title": "金融 / 财报 / 估值分析",
      "kw": ["财务", "财报", "股票", "基金", "估值", "投资", "金融", "行情", "板块", "持仓"],
-     "query": "finance 财报 估值 分析"},
+     "query": "finance 财报 估值 分析", "where": "SkillHub（finance 类）",
+     "worth": "季度性分析装一个不亏；单次查询用内置能力"},
     {"slug": "docx", "title": "Word 文档创作 / 排版",
-     "kw": ["word", "docx", "文档", "报告", "论文", "公文", "合同"],
-     "query": "docx 文档 写作 排版"},
+     "kw": ["word", "docx", "文档", "报告", "论文", "公文", "合同", "标书"],
+     "query": "docx 文档 写作 排版", "where": "SkillHub（docx 类）",
+     "worth": "常写正式文档就装；一次性用内置能力"},
     {"slug": "pptx", "title": "PPT 演示文稿",
-     "kw": ["ppt", "pptx", "幻灯片", "演示", "汇报"],
-     "query": "pptx 演示文稿"},
+     "kw": ["ppt", "pptx", "幻灯片", "演示", "汇报", "路演", "slides"],
+     "query": "pptx 演示文稿", "where": "SkillHub（pptx 类）",
+     "worth": "要讲演才装；内部草稿用内置能力"},
     {"slug": "sheet", "title": "Excel / 表格处理",
-     "kw": ["excel", "表格", "xlsx", "数据表", "透视", "csv"],
-     "query": "excel 表格 数据"},
-    {"slug": "frontend", "title": "前端 / 网页 / UI",
-     "kw": ["前端", "网页", "ui", "react", "html", "css", "组件", "页面"],
-     "query": "frontend 网页 UI"},
+     "kw": ["excel", "表格", "xlsx", "数据表", "透视", "csv", "台账", "对账"],
+     "query": "excel 表格 数据", "where": "SkillHub（sheet 类）",
+     "worth": "经常跑报表才装"},
+    {"slug": "frontend", "title": "前端 / 网页 / 组件开发",
+     "kw": ["前端", "网页", "react", "html", "css", "组件", "页面", "官网",
+            "落地页", "小程序页面", "tsx", "vue", "前端工程"],
+     "query": "frontend 网页 UI", "where": "GitHub / SkillHub（frontend 类）",
+     "worth": "持续做页面才装；单页用内置能力"},
     {"slug": "browser", "title": "浏览器自动化 / 抓取",
-     "kw": ["爬虫", "抓取", "自动化", "浏览器", "网页操作", "截图"],
-     "query": "browser 自动化 抓取"},
+     "kw": ["爬虫", "抓取", "自动化", "浏览器", "网页操作", "截图", "登录网站",
+            "自动填表", "selenium", "playwright", "打开网站", "网页自动"],
+     "query": "browser 自动化 抓取", "where": "DSH 市场（browser-skill 类 MCP）+ SkillHub",
+     "worth": "反复操作同一批页面才值得装 MCP；一次性抓取用内置能力"},
     {"slug": "debug", "title": "调试 / 排错",
-     "kw": ["调试", "报错", "bug", "排查", "崩溃", "异常"],
-     "query": "debugging 调试 排错"},
+     "kw": ["调试", "报错", "bug", "排查", "崩溃", "异常", "不工作", "失败", "修复"],
+     "query": "debugging 调试 排错", "where": "SkillHub（debug 类）",
+     "worth": "通常内置能力足够；只有反复返工才装"},
     {"slug": "evals", "title": "评测 / 回归测试",
-     "kw": ["评测", "回归", "测试", "eval", "基线", "通过率"],
-     "query": "evals 评测 回归"},
+     "kw": ["评测", "回归", "测试", "eval", "基线", "通过率", "评分", "打分"],
+     "query": "evals 评测 回归", "where": "GitHub（本项目同源思路）",
+     "worth": "资产多到管不过来才装"},
     {"slug": "chart", "title": "数据可视化 / 图表",
-     "kw": ["图表", "可视化", "chart", "看板", "dashboard", "仪表盘"],
-     "query": "chart 可视化 图表"},
+     "kw": ["图表", "可视化", "chart", "看板", "dashboard", "仪表盘", "大屏"],
+     "query": "chart 可视化 图表", "where": "SkillHub（chart 类）",
+     "worth": "常做汇报图表才装"},
 ]
 
 
@@ -525,6 +548,10 @@ def merge_baseline(new_doc, replace=False):
 
     默认按**资产**合并：本次跑到的资产整块替换，没跑到的资产原样保留。
     以前是整体覆盖，只重跑一个 skill 就会把其他资产的基线静默清空。
+
+    K 护栏（2026-10-18 加）：**合并后同一个 case 的 K 不得低于旧值**。
+    真实事故：K=3 真跑的 github 基线被一次 K=1 的 `--replace` 整体覆盖，
+    K≥3 证据静默消失，而文档还写着"最小 K=3"。现在这种稀释会以 k_warnings 报出来。
     """
     old = load_json(BASELINE, {"results": []}) or {"results": []}
     new_rows = [r for r in (new_doc.get("results") or []) if r.get("skill")]
@@ -536,6 +563,17 @@ def merge_baseline(new_doc, replace=False):
         kept = [r for r in old["results"] if r.get("skill") not in new_skills]
         kept_skills = {r.get("skill") for r in kept if r.get("skill")}
         merged_rows = kept + new_rows
+
+    k_warnings = []
+    old_k = {(r.get("skill"), r.get("case_id")): (r.get("k") or 1)
+             for r in (old.get("results") or [])}
+    for r in new_rows:
+        prev = old_k.get((r.get("skill"), r.get("case_id")))
+        cur = r.get("k") or 1
+        if prev and cur < prev:
+            k_warnings.append("%s/%s：K %d → %d（硬基线证据被稀释）"
+                              % (r.get("skill"), r.get("case_id"), prev, cur))
+
     models = sorted({r.get("model") for r in merged_rows if r.get("model")})
     doc = {
         "baseline_model": (new_doc.get("baseline_model") or old.get("baseline_model") or ""),
@@ -545,7 +583,7 @@ def merge_baseline(new_doc, replace=False):
     }
     write_json(BASELINE, doc)
     return {"replaced": sorted(new_skills), "kept": sorted(kept_skills),
-            "total": len(merged_rows), "models": models}
+            "total": len(merged_rows), "models": models, "k_warnings": k_warnings}
 
 
 def report_is_newer(host):
@@ -1256,6 +1294,8 @@ def cmd_report(args):
         st = merge_baseline(data, replace=getattr(args, "replace", False))
         print(f"\n[ok] 基线已合并：替换 {len(st['replaced'])} 个资产，保留 {len(st['kept'])} 个，"
               f"共 {st['total']} 条（模型：{', '.join(st['models']) or '?'}）")
+        for w in st.get("k_warnings") or []:
+            print(f"     {WARN_MARK} K 下降：{w}")
         if st["kept"]:
             print(f"     保留未重跑的资产：{', '.join(st['kept'])}（仍是旧模型的判定）")
         print(f"     下一步：python scripts/console.py --host {args.host or 'workbuddy'} scan")
@@ -1293,6 +1333,21 @@ def match_existing(need, reg):
     return hits
 
 
+def need_categories(need_l):
+    """一句话需求 → 命中的所有类目（按 TAXONOMY 顺序）。
+
+    以前只取第一个命中，于是「设计一个 app 界面并做成网页」只报 UI 或只报前端。
+    现在全部命中、按命中关键词数量排序，让 Agent 看到完整的能力缺口。
+    """
+    scored = []
+    for t in TAXONOMY:
+        hits = [k for k in t["kw"] if k.lower() in need_l]
+        if hits:
+            scored.append((len(hits), t, hits))
+    scored.sort(key=lambda x: (-x[0], TAXONOMY.index(x[1])))
+    return scored
+
+
 def cmd_suggest(args):
     host, prof = resolve_host(args)
     need = args.need
@@ -1308,19 +1363,22 @@ def cmd_suggest(args):
         return 0
 
     need_l = need.lower()
-    best = None
-    for t in TAXONOMY:
-        if any(k.lower() in need_l for k in t["kw"]):
-            best = t
-            break
-    if best:
-        print(f"{BULB} 当前 {host} 没有匹配的 {label}。建议新增：")
-        print(f"   [install:{best['slug']}]  {best['title']}")
-        print(f"   搜索词：{best['query']}")
-        print("\n下一步：我可以帮你搜索并安装（需你确认）；也可先看内置能力能否直接做。")
-    else:
-        print(f"{BULB} 未匹配到现成 {label}。")
-        print("   建议：先用内置能力试做；若确属高频任务，我再搜市场/专家推荐。")
+    scored = need_categories(need_l)
+    if scored:
+        print(f"{BULB} 当前 {host} 没有覆盖这个需求的 {label}。按缺口大小排序：\n")
+        for i, (_n, t, kws) in enumerate(scored[:3], 1):
+            print(f"   {i}. [install:{t['slug']}]  {t['title']}")
+            print(f"      命中词：{', '.join(kws[:6])}")
+            print(f"      搜索词：{t['query']}")
+            print(f"      去哪搜：{t.get('where', '—')}")
+            print(f"      值不值得装：{t.get('worth', '—')}")
+        print("\n下一步：我可以按上面的搜索词去搜真实候选、给你带证据的卡片，你确认后才装；")
+        print("        也可以先用内置能力把这件事做掉（一次性需求通常更划算）。")
+        return 0
+
+    print(f"{BULB} 未匹配到现成类别（{label} 侧）。")
+    print("   建议：先用内置能力试做；若这会是高频任务，把需求描述得更具体点再问我一次，")
+    print("        我再按 TAXONOMY 重新匹配（当前只覆盖 11 个常见类目，不是万能表）。")
     return 0
 
 

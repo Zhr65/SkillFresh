@@ -579,5 +579,82 @@ class SeedTests(unittest.TestCase):
                 os.rmdir(contrib)
 
 
+class KDilutionGuardTests(unittest.TestCase):
+    """合并后同一个 case 的 K 不得低于旧值（防硬基线证据被静默稀释）。"""
+
+    def setUp(self):
+        self.tmp = mkdtemp()
+        console.configure_data_dir(self.tmp)
+
+    def tearDown(self):
+        console.configure_data_dir(ROOT)
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _seed(self, rows):
+        write_json(console.BASELINE, {"baseline_model": "v1", "results": rows})
+
+    def test_k_dilution_warns(self):
+        self._seed([{"skill": "a", "case_id": "c1", "model": "v1",
+                     "passed": True, "k": 3, "runs": [True] * 3}])
+        st = console.merge_baseline({"baseline_model": "v1", "results": [
+            {"skill": "a", "case_id": "c1", "model": "v1", "passed": False, "k": 1},
+        ]})
+        self.assertTrue(st["k_warnings"], "K 3→1 必须告警")
+        self.assertIn("c1", st["k_warnings"][0])
+
+    def test_k_upgrade_silent(self):
+        self._seed([{"skill": "a", "case_id": "c1", "model": "v1",
+                     "passed": True, "k": 1}])
+        st = console.merge_baseline({"baseline_model": "v1", "results": [
+            {"skill": "a", "case_id": "c1", "model": "v1", "passed": True,
+             "k": 3, "runs": [True] * 3},
+        ]})
+        self.assertEqual(st["k_warnings"], [], "K 提升不该告警")
+        rows = console.load_json(console.BASELINE)["results"]
+        self.assertEqual(rows[0]["k"], 3)
+
+    def test_replace_skips_guard_but_reports(self):
+        """--replace 允许覆盖（用户显式选择），但合并结果仍如实反映 K。"""
+        self._seed([{"skill": "a", "case_id": "c1", "model": "v1",
+                     "passed": True, "k": 3, "runs": [True] * 3}])
+        st = console.merge_baseline({"baseline_model": "v2", "results": [
+            {"skill": "a", "case_id": "c1", "model": "v2", "passed": True, "k": 1},
+        ]}, replace=True)
+        rows = console.load_json(console.BASELINE)["results"]
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["k"], 1)
+        self.assertEqual(rows[0]["model"], "v2")
+
+
+class SuggestionTestsExtra(unittest.TestCase):
+    """缺能力推荐：口语要命中、多类目要报、已装优先于推荐。"""
+
+    def test_colloquial_needs_hit(self):
+        cases = {
+            "帮我设计一个app的界面": "ui-design",
+            "帮我做个公司官网": "frontend",
+            "我想自动登录网站批量下载": "browser",
+            "帮我做一份季度财报分析": "finance",
+            "把这段文字的AI味去掉": "humanizer",
+            "帮我画个看板": "chart",
+            "帮我做个PPT汇报": "pptx",
+        }
+        for need, want in cases.items():
+            slugs = [t["slug"] for _n, t, _h in console.need_categories(need.lower())]
+            self.assertIn(want, slugs, "%r 应命中 %s（实际 %s）" % (need, want, slugs))
+
+    def test_multi_category_ranked(self):
+        scored = console.need_categories("设计一个 app 界面并做成网页上线")
+        slugs = [t["slug"] for _n, t, _h in scored]
+        self.assertGreaterEqual(len(scored), 2, "跨类目需求应报多个缺口")
+        # 命中词多的排前面
+        self.assertGreaterEqual(scored[0][0], scored[-1][0])
+
+    def test_every_category_has_guidance(self):
+        for t in console.TAXONOMY:
+            self.assertTrue(t.get("where"), "%s 缺 where（去哪搜）" % t["slug"])
+            self.assertTrue(t.get("worth"), "%s 缺 worth（值不值得装）" % t["slug"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

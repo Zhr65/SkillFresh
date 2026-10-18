@@ -149,7 +149,7 @@ python scripts/console.py --host workbuddy recommend
 | `recommend` | 推荐/淘汰面板 |
 | `report [--promote]` | 生成折旧报告；`--promote` 把结果合并进基线 |
 | `probe` | 读宿主日志，找「装得像、跑不起来」的资产 |
-| `suggest --need "<需求>"` | 无匹配 skill 时按需求推荐 |
+| `suggest --need "<需求>"` | 缺能力时主动推荐（已装优先，未装给命中词/搜索词/去哪搜/值不值得装） |
 | `seed audit` | seed/ 覆盖了什么、哪些你本机能跑 |
 | `baseline --from-seed` | 用社区 seed 建基线（只取你装了的资产） |
 | `seed contribute` | 贡献一个 case（自动脱敏） |
@@ -171,6 +171,27 @@ python scripts/console.py --host workbuddy scan && python scripts/console.py --h
 
 `--from-seed` 只取你**真实装了的**资产，装不上的不凑数；你自己的 `golden/` 永远优先于 seed。
 判定标准是社区初版，不是权威。
+
+### 缺能力时它主动推荐（suggest）
+
+Agent 干活时遇到你名下没有的能力（比如"帮我设计一个 app 的界面"、但没有 UI skill），
+`suggest` 会给出**已装优先 → 未装给缺口**的结论：
+
+```bash
+python scripts/console.py --host workbuddy suggest --need "帮我设计一个app的界面"
+```
+
+输出包含四件事，Agent 拿这一份就能去搜、并且知道值不值得装：
+
+| 字段 | 例 |
+|---|---|
+| 命中词 | `设计, 界面, app`（告诉你它怎么理解你的话） |
+| 搜索词 | `UI 设计 app 界面 mockup` |
+| 去哪搜 | `SkillHub（office/frontend 类）+ GitHub` |
+| 值不值得装 | `一次性原型用内置能力做；要反复产出设计稿才值得装` |
+
+已装的相关资产**永远排在推荐前面**（"你已有 browser-use，直接用"），不会让你重复装。
+跨类目的需求（"设计一个 app 界面并做成网页"）会报多个缺口并按命中词多少排序。
 
 ## 安全与隐私
 

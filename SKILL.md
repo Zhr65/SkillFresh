@@ -208,7 +208,7 @@ This is the "empty shelf" behavior: a user (especially one with zero skills/plug
 2. **Check the registry first** — `python scripts/console.py suggest --need "<need>"`. It returns either:
    - `✓ 你已有可用的 skill/插件：<name>` → use it, don't install anything; or
    - `💡 建议新增：[install:<slug>] <title>` → no cover, recommend the category.
-3. **If uncovered, search the marketplace** for real candidates (skills/plugins/experts) and present a card with evidence: what it does, why it fits this need, source. **Never auto-install** — the user picks.
+3. **If uncovered, search the marketplace** for real candidates (skills/plugins/experts) and present a card with evidence: what it does, why it fits this need, source. **Never auto-install** — the user picks. Each recommendation carries **where to search** and **whether it is worth installing** (one-off task → built-in capability; repeated work → install). A request spanning several categories ("design an app UI and ship it as a web page") reports every matched gap, ranked by keyword hits.
 4. **On install, register it** (`console.py scan`) so it enters monitoring with a fingerprint + baseline slot.
 
 Boundary: recommend at the moment of need, not as a standing排行榜. One suggestion tied to the current task beats a list of 50 skills. If the need is one-off, prefer built-in capability over installing.

@@ -99,9 +99,17 @@ C="scripts/console.py"                       # 在仓库根目录执行
 名称匹配既认完整资产名，也认名称片段（`frontend-dev` 能被「做个前端页面」命中），比早期只认全串实用。
 
 实测示例：
-- `suggest --need "帮我做一份季度财务分析报告"` → `[install:finance]`
-- `suggest --need "帮我把这段文字去一下AI味"` → 已有 humanizer
-- `suggest --need "帮我规划一次线下婚礼流程"` → 未匹配到现成类别，建议先用内置能力试做
+- `suggest --need "帮我做一份季度财务分析报告"` → 未装 → `[install:finance]` + 去哪搜 + 值不值得装
+- `suggest --need "帮我设计一个app的界面"` → 未装 → `[install:ui-design]`（命中词 设计/界面/app）
+- `suggest --need "帮我做一个公司官网"` → **已装 frontend-dev** → 直接说"用它做"，不重复推荐
+- `suggest --need "帮我打开浏览器自动登录网站"` → **已装 browser-use** → 已有可用
+- `suggest --need "帮我把这段文字去一下AI味"` → **已装 humanizer**
+
+跨类目需求报多个缺口，按命中词数量排序：
+- `suggest --need "设计一个 app 界面并做成网页上线"` → `ui-design` + `frontend`
+
+**TAXONOMY 只覆盖 11 个常见类目，不是万能表**。没命中时它明说"未匹配到现成类别"
+并建议先用内置能力试做——而不是硬凑一个推荐。
 
 ## 新用户三步 + seed（陌生人装上不再看空表）
 

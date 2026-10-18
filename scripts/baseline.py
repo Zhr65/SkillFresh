@@ -42,7 +42,9 @@ sys.path.insert(0, HERE)
 
 from console import (  # noqa: E402
     configure_data_dir, write_json, merge_baseline, seed_cases, load_registry, reg_assets,
+    load_json,
 )
+import console  # noqa: E402  （configure_data_dir 会改它的模块级路径常量）
 
 
 def load_golden(path):
@@ -221,7 +223,7 @@ def main():
         if missing:
             # 按资产合并时，本资产下没跑的用例会随旧行一起被换掉 —— 必须说清楚，
             # 否则用户以为"只追加"，实际"覆盖面变小了"。
-            prev = load_json(BASELINE, {"results": []}) or {"results": []}
+            prev = load_json(console.BASELINE, {"results": []}) or {"results": []}
             prev_ids = {r.get("case_id") for r in prev.get("results", [])
                         if r.get("skill") in {c["skill"] for c in cases}}
             have = {c["id"] for c in cases}
@@ -245,6 +247,8 @@ def main():
         if st["kept"] and not args.replace:
             print(f"     保留资产：{', '.join(st['kept'])}（本轮没跑，旧模型判定）")
         print(f"     模型：{', '.join(st['models'])}")
+        for w in st.get("k_warnings") or []:
+            print(f"     [warn] K 下降：{w}（要保留更高 K 的硬基线，请用 K 相同或更高的判定重跑）")
         return 0
 
     scaffold = []
