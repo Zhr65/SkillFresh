@@ -1709,7 +1709,31 @@ FIND_SYNONYMS = {
     "github": ["github", "仓库", "repo", "代码托管"],
     "humanize": ["去ai味", "润色", "humanize", "改写", "文案"],
     "search": ["搜索", "查资料", "联网", "search", "检索"],
+    # ---- 计算机方向通用域（覆盖「所有计算机方向」诉求，按任务动词×对象组织）----
+    "database": ["数据库", "建表", "sql", "查询数据", "migration", "迁移", "表结构", "postgres", "mysql", "sqlite", "mongo"],
+    "deploy": ["部署", "上线", "发布", "deploy", "ci", "cd", "docker", "k8s", "容器", "运维", "服务器", "上线部署"],
+    "test": ["测试", "单测", "用例", "test", "coverage", "覆盖率", "回归"],
+    "code-review": ["代码审查", "review", "重构", "refactor", "代码质量", "lint", "审查", "评审"],
+    "scrape": ["爬虫", "爬取", "抓取", "scrape", "crawl", "采集"],
+    "email": ["邮件", "发信", "email", "smtp", "imap"],
+    "file": ["文件", "批量处理", "压缩", "解压", "格式转换", "pdf", "转换"],
+    "auth": ["登录", "鉴权", "认证", "auth", "oauth", "jwt", "加密"],
+    "monitor": ["监控", "日志", "告警", "monitor", "log", "metrics"],
+    "ai-model": ["模型", "大模型", "llm", "ai", "推理", "微调", "embedding", "agent"],
+    "git": ["git", "提交", "分支", "合并", "merge", "rebase", "版本控制"],
+    "network": ["网络", "请求", "http", "接口调试", "抓包", "代理", "proxy"],
+    "data": ["数据清洗", "分析", "统计", "pandas", "数据集", "dataset", "csv"],
+    "cloud": ["云", "服务器", "aws", "azure", "云函数", "serverless", "主机"],
+    "compile": ["编译", "构建", "打包", "build", "compile", "依赖安装", "环境配置", "配置环境", "装依赖", "环境"],
 }
+
+# 计算机方向的任务动词（中英）—— 兜底层用：和资产描述里的任意词联合命中
+TASK_VERBS = [
+    "做", "开发", "写", "建", "搭建", "实现", "生成", "部署", "修复", "调试",
+    "优化", "重构", "测试", "审查", "迁移", "配置", "安装", "转换", "爬",
+    "查", "监控", "分析", "设计", "自动化", "build", "make", "create", "write",
+    "fix", "deploy", "setup", "implement",
+]
 # 功能域 → 常见资产名成分（把"功能"连到"名字"）
 FIND_DOMAIN_HINTS = {
     "appdev": ["app", "appdev", "mobile", "api", "backend", "client", "server", "dev"],
@@ -1728,14 +1752,20 @@ FIND_DOMAIN_HINTS = {
 
 
 def find_domain(task_l):
-    """任务描述 → 命中的功能域列表（按命中词数排序）。"""
+    """任务描述 → 命中的功能域列表（按命中强度排序）。
+
+    强度 = Σ命中词长（字符数）。单字命中（如 sheet 域的「表」）必须弱于
+    多字命中（database 域的「数据库」）—— 实测「建个数据库表」曾因两者
+    同分、字典序 sheet 靠前而误判成表格处理。
+    """
     out = []
     for dom, words in FIND_SYNONYMS.items():
         hits = [w for w in words if w in task_l]
         if hits:
-            out.append((dom, hits))
-    out.sort(key=lambda x: -len(x[1]))
-    return out
+            weight = sum(len(w) for w in hits)
+            out.append((dom, hits, weight))
+    out.sort(key=lambda x: -x[2])
+    return [(dom, hits) for dom, hits, _w in out]
 
 
 def cmd_find(args):
@@ -1761,6 +1791,29 @@ def cmd_find(args):
             name_hits.append((name, s))
     seen = {n for n, _ in name_hits}
 
+    # ②' 描述分词兜底：同义词表没覆盖的计算机方向（用户说法千千万，表列不完）。
+    # 用户任务里的实词 ≥2 字、且出现在资产描述里 → 命中。
+    # 这是"所有计算机方向都要有"的兜底层：不靠维护词表，靠描述本身的词汇重叠。
+    def _desc_hits():
+        out = []
+        stop = set(TASK_VERBS) | {"我", "帮", "一个", "这个", "一下", "的", "了", "吗", "呢", "想", "要", "能"}
+        words = [w for w in re.split(r"[\s,，。、/?！!]+", ql)
+                 if len(w) >= 2 and w not in stop]
+        if not words:
+            return out
+        for name, s in assets.items():
+            if s.get("eliminated") or name in seen:
+                continue
+            desc = ((s.get("description") or "") + " " + name).lower()
+            hit_words = [w for w in words if w in desc]
+            if hit_words:
+                out.append((name, s, hit_words[:3]))
+        return out
+
+    desc_fallback = _desc_hits()
+    for name, s, _hw in desc_fallback:
+        seen.add(name)
+
     # 功能域 → 资产：通过名字成分（FIND_DOMAIN_HINTS）
     dom_hits = []
     for dom, words in domains:
@@ -1773,18 +1826,20 @@ def cmd_find(args):
                 dom_hits.append((name, s, dom, words[:3]))
                 seen.add(name)
 
-    if not name_hits and not dom_hits:
+    if not name_hits and not dom_hits and not desc_fallback:
         print(f"\n没有找到与「{q}」相关的已装 {prof['label']}。")
         if domains:
             print(f"（识别出功能域 {domains[0][0]}，但已装资产里没有名字相关的）")
         print("行动建议：可以 suggest --need 看要不要装新的；或用内置能力做。")
         return 3
 
-    print(f"\n「{q}」→ 找到 {len(name_hits) + len(dom_hits)} 个：\n")
+    print(f"\n「{q}」→ 找到 {len(name_hits) + len(dom_hits) + len(desc_fallback)} 个：\n")
     for name, s in name_hits:
         _print_find_hit(name, s, "名称/描述命中", q)
     for name, s, dom, words in dom_hits:
         _print_find_hit(name, s, "功能:%s（命中词 %s）" % (dom, ",".join(words)), q)
+    for name, s, hw in desc_fallback:
+        _print_find_hit(name, s, "描述词命中:%s" % ",".join(hw), q)
     print("\n行动建议：直接按上面的工具名调用；UI 类插件（无工具）让用户在界面里用。")
     return 0
 

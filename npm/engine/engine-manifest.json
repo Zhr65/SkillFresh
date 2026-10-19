@@ -1,6 +1,6 @@
 {
   "name": "dsh-skill-auditor",
-  "version": "0.8.1",
+  "version": "0.8.2",
   "source": "skill-auditor (upstream engine)",
   "fileCount": 30,
   "files": [
@@ -41,8 +41,8 @@
     },
     {
       "path": "scripts/console.py",
-      "bytes": 107643,
-      "sha256": "adcc0897970fd445df8a936e0ab1497d453e3116bb74e75e9fe2648a6472b719"
+      "bytes": 111243,
+      "sha256": "032ac1727cb24d42d4eb1af2e9b88d9ccf0730a104d184ca69678e8eb2151f18"
     },
     {
       "path": "scripts/fingerprint.py",
@@ -147,7 +147,7 @@
     {
       "path": "SKILL.md",
       "bytes": 21800,
-      "sha256": "7b26122cfdc7ffac334e00156ea5d322f66cafb4e0bc70e89a7f497ffa6449de"
+      "sha256": "baa7282aa071169582b0665a1c2fc71639205a2dbc7fef112207ccdfb2ca0acb"
     },
     {
       "path": "USAGE.md",

@@ -1328,6 +1328,36 @@ class FindRouteTests(unittest.TestCase):
             doms = console.find_domain(q.lower())
             self.assertTrue(any(d == "appdev" for d, _ in doms), repr(q))
 
+    def test_all_cs_domains(self):
+        """16 个计算机方向场景：首位功能域必须正确（用户要求全方向覆盖）。"""
+        cases = [
+            ("帮我建个数据库表", "database"),
+            ("部署到服务器", "deploy"),       # 曾误判 cloud（服务器 vs 部署）
+            ("写个单元测试", "test"),
+            ("审查一下这段代码", "code-review"),
+            ("爬取网页数据", "browser"),
+            ("发封邮件", "email"),
+            ("批量转换文件格式", "file"),
+            ("加个登录鉴权", "auth"),
+            ("看看日志排查问题", "debug"),
+            ("微调一下模型", "ai-model"),
+            ("提交代码到git", "git"),
+            ("配置环境装依赖", "compile"),
+            ("帮我做个App", "appdev"),
+            ("查下余额", "balance"),
+            ("帮我记住这个", "memory"),
+            ("做个Excel报表", "sheet"),
+        ]
+        for q, want in cases:
+            doms = console.find_domain(q.lower())
+            top = doms[0][0] if doms else None
+            self.assertEqual(top, want, "%r 首位域=%r 期望 %r" % (q, top, want))
+
+    def test_domain_weight_prefers_longer_hits(self):
+        """「建个数据库表」首位必须是 database 不是 sheet（单字'表'曾同分误判）。"""
+        doms = console.find_domain("帮我建个数据库表")
+        self.assertEqual(doms[0][0], "database")
+
     def test_load_json_survives_gbk_file(self):
         """GBK 编码的 JSON（PowerShell Set-Content 写的）不能让 scan 崩掉。"""
         p = os.path.join(self.tmp, "gbk.json")
