@@ -732,5 +732,86 @@ class NodePluginTests(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+class BlockedByEnvTests(unittest.TestCase):
+    """全失败且归因环境 → blocked，不是 degraded（别让人去重写插件）。"""
+
+    def _bl(self, attribution="environment: daemon not running"):
+        return {"results": [
+            {"skill": "p", "passed": False, "attribution": attribution},
+            {"skill": "p", "passed": False, "attribution": attribution},
+        ]}
+
+    def test_all_env_failures_are_blocked(self):
+        self.assertTrue(console.all_failed_by_env("p", self._bl()))
+
+    def test_mixed_attribution_is_not_blocked(self):
+        bl = {"results": [
+            {"skill": "p", "passed": False, "attribution": "environment: daemon"},
+            {"skill": "p", "passed": False, "attribution": "output structure changed"},
+        ]}
+        self.assertFalse(console.all_failed_by_env("p", bl),
+                         "归因不一致时必须按 degraded 处理，不能洗成环境问题")
+
+    def test_no_attribution_is_not_blocked(self):
+        self.assertFalse(console.all_failed_by_env(
+            "p", {"results": [{"skill": "p", "passed": False}]}))
+
+    def test_passed_rows_ignored(self):
+        bl = {"results": [
+            {"skill": "p", "passed": False, "attribution": "environment: x"},
+            {"skill": "p", "passed": True},
+        ]}
+        self.assertTrue(console.all_failed_by_env("p", bl))
+
+    def test_attribution_propagates_from_recorded_underscore(self):
+        """recorded 顶层 _attribution 要传播到每行，scan 才能判 blocked。"""
+        import subprocess
+        tmp = mkdtemp()
+        try:
+            console.configure_data_dir(tmp)
+            golden = os.path.join(tmp, "g.json")
+            write_json(golden, {"skill": "plug-t", "fingerprint": "f", "draft": False,
+                                "cases": [{"id": "c1", "input": "x",
+                                           "expected": "ok", "judge": "ok"}]})
+            rec = os.path.join(tmp, "r.json")
+            write_json(rec, {"c1": {"runs": [False], "curated": True},
+                             "_attribution": "environment: daemon not running"})
+            p = subprocess.run([sys.executable, os.path.join(SCRIPTS, "baseline.py"),
+                                "--golden", golden, "--from", rec, "--out", tmp,
+                                "--model", "v1"],
+                               capture_output=True, text=True, encoding="utf-8",
+                               errors="replace")
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            rows = console.load_json(console.BASELINE)["results"]
+            self.assertEqual(rows[0]["attribution"], "environment: daemon not running")
+            self.assertTrue(console.all_failed_by_env("plug-t", {"results": rows}))
+        finally:
+            console.configure_data_dir(ROOT)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
+class PluginTemplateTests(unittest.TestCase):
+    """插件 golden：不能是 TODO 占位，必须有 template 标记和可判的 judge。"""
+
+    def test_installed_plugin_goldens_are_usable(self):
+        checked = 0
+        for name in ("vectorize-io_hindsight-coding-agents",
+                     "wxg-prc-cpg_browser-skill-dsh-plugin",
+                     "dsh-workbuddy-connect"):
+            path = os.path.join(ROOT, "golden", name + ".json")
+            if not os.path.isfile(path):
+                continue
+            doc = console.load_json(path)
+            checked += 1
+            self.assertFalse(doc.get("draft"), "%s 不应还是草稿" % name)
+            self.assertTrue(doc.get("template"), "%s 应标 template: true" % name)
+            for c in doc["cases"]:
+                exp = str(c.get("expected", "")).strip()
+                self.assertTrue(exp and not exp.upper().startswith("TODO"),
+                                "%s/%s expected 仍是占位符" % (name, c["id"]))
+                self.assertTrue(str(c.get("judge", "")).strip())
+        self.assertGreaterEqual(checked, 3, "三个已装插件都该有可用 golden")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

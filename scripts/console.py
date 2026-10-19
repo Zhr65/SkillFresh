@@ -587,6 +587,26 @@ def merge_baseline(new_doc, replace=False):
             "total": len(merged_rows), "models": models, "k_warnings": k_warnings}
 
 
+def all_failed_by_env(skill, baseline):
+    """该资产在当前模型下的判定是否**全部失败且归因环境**。
+
+    用途：把"跑不起来"（环境缺件）与"能力退化"（模型换代）分开。
+    判据保守：必须有 attribution 且以 environment/env/network 开头，
+    或者 recorded 里写了 _attribution 且含 environment —— 含糊不清就当降级处理，
+    宁可误判成"该重写"，也别把真实退化说成"环境问题"。
+    """
+    rows = [r for r in (baseline.get("results") or [])
+            if r.get("skill") == skill and r.get("passed") is False]
+    if not rows:
+        return False
+    marks = [str(r.get("attribution") or "").lower() for r in rows]
+    if not any(m for m in marks):
+        return False
+    env = ("environment", "env:", "network", "unavailable", "not installed",
+           "daemon", "extension", "path")
+    return all(any(k in m for k in env) for m in marks)
+
+
 def report_is_newer(host):
     """report 写了判定、但 registry 还没吸收 —— 面板与报告会不一致。"""
     rp = os.path.join(DEFAULT_OUT, "depreciation-report.json")
@@ -981,6 +1001,10 @@ def cmd_scan(args):
             status = "strong" if a["risk"] < RISK_LOW else "watch"
         elif rate >= 0.8:
             status = "watch"
+        elif all_failed_by_env(name, baseline):
+            # 全部失败且归因是环境 → 不是"降级"，是"跑不起来"。
+            # 混成一个 degraded 会让用户去重写插件，而真正该做的是修环境。
+            status = "blocked"
         else:
             status = "degraded"
 
@@ -994,6 +1018,8 @@ def cmd_scan(args):
             rec = "prune-candidate"
         elif status == "unverified":
             rec = "evaluate"
+        elif status == "blocked":
+            rec = "fix-environment"
         elif status == "degraded":
             rec = "rewrite-or-eliminate"
         else:
@@ -1136,7 +1162,7 @@ def cmd_recommend(args):
         print(f"[err] registry.{host}.json missing — run `--host {host} scan` first")
         return 1
     label = prof["label"]
-    strong, watch, unverified, prune, degraded = [], [], [], [], []
+    strong, watch, unverified, prune, degraded, blocked = [], [], [], [], [], []
     for name, s in reg_assets(reg).items():
         if s.get("eliminated"):
             continue
@@ -1147,6 +1173,8 @@ def cmd_recommend(args):
             watch.append((name, s))
         elif rec == "prune-candidate":
             prune.append((name, s))
+        elif rec == "fix-environment":
+            blocked.append((name, s))
         elif rec in ("rewrite-or-eliminate", "degraded"):
             degraded.append((name, s))
         else:
@@ -1173,6 +1201,10 @@ def cmd_recommend(args):
 
     print(f"\n{WHITE} 未验证（无基线，建议先建 golden set 再判断，暂不淘汰）")
     emit([("eval", n, s) for n, s in unverified], lambda s: f"risk={s.get('risk')}")
+
+    print(f"\n{WARN_MARK} 跑不起来 · 环境问题（不是能力退化，修环境而不是重写）")
+    emit([("fix", n, s) for n, s in blocked],
+         lambda s: f"基线 {s.get('baseline_pass')}/{s.get('baseline_n')}（全部失败且归因为环境）")
 
     print(f"\n{RED} 已降级 · 淘汰候选（升级重跑后通过率跌破阈值才出现）")
     emit([("rewrite", n, s) for n, s in degraded],

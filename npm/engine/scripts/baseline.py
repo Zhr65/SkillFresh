@@ -149,13 +149,31 @@ def main():
             for p in sorted(glob.glob(g)):
                 data = load_golden(p)
                 fp = data.get("fingerprint")
+                # golden 文件里的指纹是"写 golden 那一刻"的快照；资产演进后它会过期，
+                # 让回归时全部误报 FINGERPRINT-DRIFT。基线行应以 registry 的当前指纹为准
+                # （本机装了这个资产才有 registry 行；没有就保留 golden 的并提示）。
+                skill = data.get("skill")
+                cur = None
+                for host in (args.host, None):
+                    cfg_h = host or (console.load_hosts_config().get("default_host"))
+                    r = load_registry(cfg_h)
+                    a = (reg_assets(r) or {}).get(skill) if r else None
+                    if a and a.get("fingerprint"):
+                        cur = a["fingerprint"]
+                        break
+                if cur and fp and cur != fp:
+                    print(f"[fp] {skill}: golden 指纹 {fp} 已过期，按 registry 当前 {cur} 录入"
+                          "（资产改过 → 建议重跑该资产全部用例）")
+                    fp = cur
+                elif cur and not fp:
+                    fp = cur
                 for c in data.get("cases", []):
                     if (is_draft(c, data) and not args.allow_draft
                             and c["id"] not in curated_ids):
                         drafts += 1
                         continue
                     cases.append({
-                        "skill": data["skill"],
+                        "skill": skill,
                         "fingerprint": fp,
                         "id": c["id"],
                         "input": c.get("input", ""),
@@ -206,6 +224,10 @@ def main():
             if args.k and len(runs) < args.k:
                 short_k += 1
             attribution = (v.get("attribution", "") if isinstance(v, dict) else "")
+            # recorded 顶层的 _attribution 是"整批同一归因"的简写（常用于"全部因环境失败"）。
+            # 传播到每行，scan 才能把它识别成 blocked(环境) 而不是 degraded(退化)。
+            if not attribution:
+                attribution = str(recorded.get("_attribution") or "")
             # passed = K 次多数（单次时就是它自己）。K 次平票按失败算 —— 保守口径：
             # 不能让"说不准"变成绿灯。
             passed = (sum(1 for r in runs if r) * 2 > len(runs))

@@ -224,6 +224,10 @@ def main():
             if args.k and len(runs) < args.k:
                 short_k += 1
             attribution = (v.get("attribution", "") if isinstance(v, dict) else "")
+            # recorded 顶层的 _attribution 是"整批同一归因"的简写（常用于"全部因环境失败"）。
+            # 传播到每行，scan 才能把它识别成 blocked(环境) 而不是 degraded(退化)。
+            if not attribution:
+                attribution = str(recorded.get("_attribution") or "")
             # passed = K 次多数（单次时就是它自己）。K 次平票按失败算 —— 保守口径：
             # 不能让"说不准"变成绿灯。
             passed = (sum(1 for r in runs if r) * 2 > len(runs))

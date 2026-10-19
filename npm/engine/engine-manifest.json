@@ -26,8 +26,8 @@
     },
     {
       "path": "scripts/baseline.py",
-      "bytes": 12611,
-      "sha256": "a93a4569288ffd557e775e53546fafe9ba274031df6d48d773d22ca18032c5a1"
+      "bytes": 14040,
+      "sha256": "d39293b92fc1165e842487dbadc4d77478c5c96e787135c6cf26fd3975ee687f"
     },
     {
       "path": "scripts/build_dist.py",
@@ -36,8 +36,8 @@
     },
     {
       "path": "scripts/console.py",
-      "bytes": 79374,
-      "sha256": "84e011b916e623c40bc2cc34f6f062e623dba4b0319f0c7fa0041bff682ec134"
+      "bytes": 81019,
+      "sha256": "7c45f0a4962091b0cc879096809eebd4ae9176c6f885f6c708023fb064815bd5"
     },
     {
       "path": "scripts/fingerprint.py",
