@@ -1091,5 +1091,64 @@ class UnknownModelStampTests(unittest.TestCase):
         self.assertIn("没法判断", p.stdout)
 
 
+class MultiModelTests(unittest.TestCase):
+    """多模型共存：换模型不清零历史（用户测过的数据不该消失）。"""
+
+    def setUp(self):
+        self.tmp = mkdtemp()
+        self.data = os.path.join(self.tmp, "data")
+        self.assets = os.path.join(self.tmp, "assets")
+        make_skill(self.assets, "demo-skill")
+        write_json(os.path.join(self.data, "model-version.json"),
+                   {"version": "model-B", "bumped_at": "x"})
+        write_json(os.path.join(self.data, "baseline-results.json"), {
+            "schema_version": 1, "baseline_model": "model-B",
+            "results": [
+                {"skill": "demo-skill", "case_id": "c1", "model": "model-A",
+                 "passed": True, "k": 1, "fingerprint": "f"},
+                {"skill": "demo-skill", "case_id": "c2", "model": "model-A",
+                 "passed": False, "k": 1, "fingerprint": "f"},
+                {"skill": "demo-skill", "case_id": "c1", "model": "model-B",
+                 "passed": True, "k": 1, "fingerprint": "f"},
+            ],
+        })
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_other_model_data_is_kept(self):
+        p = run_console("--host", "generic", "--root", self.assets, "--out", self.data, "scan")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        with open(os.path.join(self.data, "registry.generic.json"), encoding="utf-8") as fh:
+            asset = json.load(fh)["assets"]["demo-skill"]
+        # 当前模型只该算 model-B 那 1 条
+        self.assertEqual(asset["baseline_n"], 1)
+        self.assertEqual(asset["baseline_pass"], 1)
+        # 但 model-A 的数据必须保留下来
+        others = asset.get("baseline_other_models") or {}
+        self.assertIn("model-A", others, "换模型不能丢掉其他模型的判定")
+        self.assertEqual(others["model-A"]["n"], 2)
+        self.assertEqual(others["model-A"]["pass"], 1)
+        self.assertAlmostEqual(others["model-A"]["rate"], 0.5, places=3)
+
+    def test_status_shows_other_models(self):
+        run_console("--host", "generic", "--root", self.assets, "--out", self.data, "scan")
+        p = run_console("--host", "generic", "--out", self.data, "status")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertIn("在其他模型上测过", p.stdout)
+        self.assertIn("model-A", p.stdout)
+        self.assertIn("50%", p.stdout)
+
+    def test_active_model_prefers_explicit_stamp(self):
+        """显式戳永远优先于事件流推断。"""
+        ev = os.path.join(self.tmp, "events")
+        os.makedirs(ev, exist_ok=True)
+        console.configure_data_dir(self.data)
+        try:
+            self.assertEqual(console.get_active_model("generic"), "model-B")
+        finally:
+            console.configure_data_dir(ROOT)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -613,12 +613,24 @@ def reg_assets(reg):
 
 
 def get_active_model(host=None):
-    """当前模型戳。优先读 model-version.<host>.json，fallback 到旧版全局戳。"""
+    """当前模型：显式戳 > 宿主事件流 > unknown。
+
+    用户视角：不该记得手动 `stamp`。插件每次调用引擎都会往
+    model-events.jsonl 追加一条宿主环境里可见的模型串，
+    所以这里在**没有显式戳时**自动用事件流里最近的已知模型。
+    显式戳永远优先 —— 用户手写的比推断的可信。
+    """
     p = model_stamp_path(host)
     s = load_json(p, None)
     if s is None and host:
         s = load_json(MODEL_STAMP, None)   # 0.4.x 的单一全局戳：兼容读取
-    return (s or {}).get("version") or "v-unknown"
+    ver = (s or {}).get("version")
+    if ver and ver not in ("v-unknown", ""):
+        return ver
+    ev = read_model_events()
+    if ev and ev.get("model"):
+        return ev["model"]
+    return ver or "v-unknown"
 
 
 def merge_baseline(new_doc, replace=False):
@@ -1046,14 +1058,21 @@ def cmd_scan(args):
     # 用户明明测过却被告知没测过。unknown 时不过滤，但要在输出里明确标注。
     model_known = active_model not in ("v-unknown", "", None)
     base_by_asset = {}
+    other_models = {}          # 资产 -> {其他模型: 通过率}（保留，不清零）
     skipped = 0
     for r in baseline.get("results", []):
-        # 只统计当前模型戳下的判定。模型换代后还没重跑的资产会回到 unverified，
-        # 这是有意的：旧模型上的 100% 不能证明新模型上还灵（否则就是假绿灯）。
-        if model_known and r.get("model") and r["model"] != active_model:
-            skipped += 1
+        s = r.get("skill")
+        if not s:
             continue
-        s = r["skill"]
+        m = r.get("model")
+        if model_known and m and m != active_model:
+            # 别的模型的判定：**不再丢弃**，只单独统计。
+            # 用户视角：换模型不该把历史数据清零，那是用户自己测过的结果。
+            skipped += 1
+            od = other_models.setdefault(s, {}).setdefault(m, {"n": 0, "p": 0})
+            od["n"] += 1
+            od["p"] += 1 if r.get("passed") else 0
+            continue
         d = base_by_asset.setdefault(s, {"n": 0, "pass": 0, "k_total": 0, "min_k": None})
         d["n"] += 1
         d["pass"] += 1 if r.get("passed") else 0
@@ -1119,6 +1138,13 @@ def cmd_scan(args):
             "baseline_rate": rate,
             "baseline_min_k": min_k,
             "baseline_runs": b.get("k_total") or 0,
+            # 其他模型上测过的结果（保留，不清零）——
+            # 用户换了模型不代表以前的数据作废，那是他真实测过的。
+            "baseline_other_models": {
+                m: {"n": d["n"], "pass": d["p"],
+                    "rate": round(d["p"] / d["n"], 4) if d["n"] else None}
+                for m, d in sorted((other_models.get(name) or {}).items())
+            },
             "has_golden": has_golden,
             "status": status,
             "recommendation": rec,
@@ -1155,7 +1181,8 @@ def cmd_scan(args):
     print(f"     root={root}")
     print(f"     active_model={active_model}  baseline_model={baseline.get('baseline_model')}")
     if skipped:
-        print(f"     {WARN_MARK} {skipped} 条基线属于旧模型，未计入（模型换代后先重跑 golden set 再 scan）")
+        print(f"     {BULB} {skipped} 条判定来自其他模型（已保留，不计入当前模型的通过率）")
+        print("        换模型后要看当前模型的表现，需在新模型上重跑一次")
     if not model_known and base_by_asset:
         print(f"     {BULB} 模型戳未设置（v-unknown）：当前**不过滤**基线，"
               "所以这些通过率可能来自别的模型")
@@ -1201,7 +1228,20 @@ def cmd_status(args):
         print(f"{name:<{w}}{s.get('fingerprint',''):<18}{base:<10}{ktxt:<6}{s.get('risk',0):<6}"
               f"{caps_n:<6}{'Y' if s.get('has_golden') else '-':<7}{s.get('status','')}{tag}")
     print("-" * (w + 80))
-    # K 口径要随实际数据变化，不能写死"K=1"
+    # 其他模型上测过的：单独列出来。用户换了模型，以前的数据不该消失。
+    for name, s in sorted(reg_assets(reg).items()):
+        others = s.get("baseline_other_models") or {}
+        if not others:
+            continue
+        parts = []
+        for m, d in others.items():
+            r = d.get("rate")
+            parts.append(f"{m}: {d.get('pass')}/{d.get('n')}"
+                         + (f" ({r*100:.0f}%)" if r is not None else ""))
+        cur = s.get("status")
+        hint = "（当前模型没测过）" if cur == "unverified" else ""
+        print(f"  {BULB} {name} 在其他模型上测过{hint}：{' · '.join(parts)}")
+    print("-" * (w + 80))
     min_k = min([s.get("baseline_min_k") for s in reg_assets(reg).values()
                  if s.get("baseline_min_k")] or [1])
     knote = f"K={min_k}" if min_k <= 1 else f"最小 K={min_k}（K≥3 才有统计意义，K=1 只是单次判定）"

@@ -248,6 +248,9 @@ export async function resolvePython() {
 export async function runConsole(argv, opts = {}) {
   const py = await resolvePython()
   ensureEngine()
+  // 每次调用前刷新模型事件（宿主环境里能读到什么就记什么）。
+  // 用户不该记得手动跑 stamp —— 这是「多模型」场景能自动区分数据的前提。
+  try { appendModelEvent(opts.ctx) } catch {}
   const script = path.join(DATA_DIR, 'scripts', 'console.py')
   const res = await execFileAsync(py.cmd, [...py.pre, script, ...argv], {
     cwd: DATA_DIR,
