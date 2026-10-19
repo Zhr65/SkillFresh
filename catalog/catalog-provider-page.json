@@ -8,7 +8,7 @@
       "summary": "模型换代时，装过的 skill / 插件不会报错，只会悄悄变差。这个插件给每个资产一个能力指纹，用 golden set 回归出通过率矩阵：指纹没变而通过率掉了才判退化，指纹变了是资产被改过。回答三个问题——能力退化了吗、新装的好不好用、符不符合你本人。",
       "description": "被动诊断，不接大模型、不联网：所有判定在本机算完。能力指纹只算「能力面」（代码、manifest 声明的工具/命令/依赖），不算 README/CHANGELOG/图片，所以改文档不会误报退化。退化判定要两个条件同时成立：指纹未变 + 通过率下降 —— 只有后者是「模型换代」，只有前者是「资产被改过」。支持插件与 skill 两类资产，覆盖 WorkBuddy / Claude Code / Codex / DSH 多个宿主。运行时证据读宿主日志，确认工具真的被调用过、真的报过错，抓「装得像、跑不起来」这种。需要本机有 Python 3.8+（引擎是 stdlib，零第三方依赖），没有时工具会直接说明，不静默失败。",
       "homepage": "https://github.com/Zhr65/SkillFresh",
-      "latestVersion": "0.6.4",
+      "latestVersion": "0.6.5",
       "license": "MIT",
       "categories": [
         "developer-tools"
@@ -29,7 +29,7 @@
       },
       "installSource": {
         "kind": "github",
-        "commit": "f376d166e46a6f6aaa6d98a0dcaa259bd2862aaa"
+        "commit": "9e357b67629b67c5138136a542ba2940a300922b"
       },
       "publisher": {
         "name": "Zhr65",
