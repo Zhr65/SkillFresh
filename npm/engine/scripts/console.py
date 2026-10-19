@@ -253,8 +253,19 @@ def load_json(path, default=None):
         return default
     # utf-8-sig：Windows 记事本 / PowerShell 存出来的 JSON 带 BOM，
     # 用 "utf-8" 读会 JSONDecodeError（用户手写的 recorded/golden 最容易踩）。
-    with open(path, encoding="utf-8-sig") as f:
-        return json.load(f)
+    try:
+        with open(path, encoding="utf-8-sig") as f:
+            return json.load(f)
+    except UnicodeDecodeError:
+        # GBK/ANSI 编码的文件（实测：PowerShell Set-Content 写的中文 JSON）。
+        # 一个资产的坏编码不该让整个 scan 崩掉 —— 降级读取，读到什么算什么。
+        try:
+            with open(path, encoding="utf-8-sig", errors="replace") as f:
+                return json.load(f)
+        except Exception:
+            return default
+    except Exception:
+        return default
 
 
 def write_json(path, obj):
@@ -1682,6 +1693,10 @@ def cmd_can(args):
 #   ③ 匹配原因要显示出来（为什么命中），让人能校对
 # 功能域同义词表：键 = 功能域，值 = 一组等价说法（中英）。命中任一即算。
 FIND_SYNONYMS = {
+    # app/后端开发是常见任务域（实测「帮我做个App」原来只命中 ui-design，
+    # 有 app-dev 插件的用户会被漏掉）
+    "appdev": ["app", "应用", "移动端", "手机应用", "手机app", "后端", "backend",
+               "api", "接口", "mobile", "安卓", "android", "ios", "客户端", "服务端"],
     "memory": ["记忆", "记住", "回忆", "记住我", "长期记忆", "知识页", "memory", "remember", "recall"],
     "browser": ["浏览器", "网页", "打开网站", "浏览", "browser", "web", "页面"],
     "balance": ["余额", "额度", "剩余", "配额", "quota", "balance", "usage", "用量"],
@@ -1697,6 +1712,7 @@ FIND_SYNONYMS = {
 }
 # 功能域 → 常见资产名成分（把"功能"连到"名字"）
 FIND_DOMAIN_HINTS = {
+    "appdev": ["app", "appdev", "mobile", "api", "backend", "client", "server", "dev"],
     "memory": ["memory", "hindsight", "remember", "mem"],
     "browser": ["browser", "bsk", "chrome", "web"],
     "balance": ["whale", "balance", "widget"],

@@ -1322,6 +1322,21 @@ class FindRouteTests(unittest.TestCase):
         doms = console.find_domain("帮我记住这个")
         self.assertTrue(any(d == "memory" for d, _ in doms))
 
+    def test_find_appdev_domain(self):
+        """「做个App」这类表述必须命中 appdev 域（实测曾只命中 ui-design）。"""
+        for q in ("帮我做个 App", "开发一个app的后端和ui", "做个手机应用", "写个后端接口"):
+            doms = console.find_domain(q.lower())
+            self.assertTrue(any(d == "appdev" for d, _ in doms), repr(q))
+
+    def test_load_json_survives_gbk_file(self):
+        """GBK 编码的 JSON（PowerShell Set-Content 写的）不能让 scan 崩掉。"""
+        p = os.path.join(self.tmp, "gbk.json")
+        with open(p, "w", encoding="gbk") as fh:
+            fh.write('{"name":"app-dev","description":"中文描述"}')
+        d = console.load_json(p, None)
+        self.assertIsNotNone(d, "坏编码要降级读取，不能返回 None 崩掉")
+        self.assertEqual(d.get("name"), "app-dev")
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
