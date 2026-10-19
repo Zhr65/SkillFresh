@@ -898,5 +898,80 @@ class MarketModuleTests(unittest.TestCase):
         self.assertIn("不是插件热度", text)
 
 
+class DshProfileDiscoveryTests(unittest.TestCase):
+    """DSH 插件发现：以 dsh.profile.bundles 为权威，含 Electron 主包内置插件。"""
+
+    def setUp(self):
+        self.tmp = mkdtemp()
+        self.profile = os.path.join(self.tmp, "profile")
+        self.appnm = os.path.join(self.tmp, "appnm")
+        os.makedirs(os.path.join(self.profile, "node_modules"))
+        os.makedirs(self.appnm)
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _mk(self, base, name, desc="d"):
+        d = os.path.join(base, name)
+        write_json(os.path.join(d, "package.json"),
+                   {"name": name, "version": "1.0.0", "description": desc})
+        return d
+
+    def _profile_json(self, deps, bundles):
+        write_json(os.path.join(self.profile, "package.json"), {
+            "name": "dsh-profile-desktop", "private": True,
+            "dependencies": deps,
+            "dsh": {"profile": {"bundles": bundles}},
+        })
+
+    def test_bundles_is_authoritative_not_dependencies(self):
+        """bundles 里声明、dependencies 里没有的插件必须被发现（dshmarket 就是这种）。"""
+        self._profile_json({"plug-a": "1.0.0"},
+                           ["@deepseek-ai/dsh-base", "plug-a", "dshmarket"])
+        self._mk(os.path.join(self.profile, "node_modules"), "plug-a")
+        self._mk(self.appnm, "dshmarket")          # 只在 Electron 主包里
+        got = [a["id"] for a in console.discover_assets(
+            self.profile, ["package.json"], "deps", quiet=True)]
+        self.assertIn("plug-a", got)
+        self.assertIn("dshmarket", got, "bundled 插件必须被发现")
+
+    def test_core_bundles_excluded(self):
+        self._profile_json({}, ["@deepseek-ai/dsh-base", "@deepseek-ai/dsh-web-app"])
+        got = console.discover_assets(self.profile, ["package.json"], "deps", quiet=True)
+        self.assertEqual(got, [], "核心 bundle 不是用户插件")
+
+    def test_origin_labels(self):
+        self._profile_json({"plug-a": "1.0.0"}, ["plug-a", "builtin-b"])
+        self._mk(os.path.join(self.profile, "node_modules"), "plug-a")
+        self._mk(self.appnm, "builtin-b")
+        app_nm = self.appnm
+        orig = console.app_node_modules
+        try:
+            console.app_node_modules = lambda: app_nm
+            assets = {a["id"]: a for a in console.discover_assets(
+                self.profile, ["package.json"], "deps", quiet=True)}
+        finally:
+            console.app_node_modules = orig
+        self.assertEqual(assets["plug-a"]["origin"], "profile")
+        self.assertEqual(assets["builtin-b"]["origin"], "bundled")
+
+    def test_missing_plugin_reported_not_crash(self):
+        self._profile_json({}, ["ghost-plugin"])
+        out = []
+        orig = console.app_node_modules
+        try:
+            console.app_node_modules = lambda: None
+            assets = console.discover_assets(self.profile, ["package.json"], "deps", quiet=True)
+        finally:
+            console.app_node_modules = orig
+        self.assertEqual(assets, [], "找不到文件的插件不崩、不伪造")
+
+    def test_installed_not_enabled_listed(self):
+        self._profile_json({"dormant": "1.0.0"}, ["@deepseek-ai/dsh-base"])
+        self._mk(os.path.join(self.profile, "node_modules"), "dormant")
+        names = [n for n, k in console.dsh_profile_plugins(self.profile)]
+        self.assertIn("dormant", names, "装了但没在 bundles 里的也要报出来")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

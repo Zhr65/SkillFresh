@@ -341,12 +341,76 @@ def parse_manifest(manifest_path):
     return meta
 
 
+CORE_BUNDLE_PREFIX = "@deepseek-ai/dsh-"
+
+
+def app_node_modules():
+    """Electron 主包自带的 node_modules（插件可能内置在这里，不在 profile）。
+
+    实测（2026-10-19）：dshmarket v1.66.5 在 bundles 里声明，但 profile 的
+    node_modules 里没有 —— 它在 `.../DSH Desktop/resources/app/node_modules/`。
+    界面按 profile 依赖判断就把它标成"未安装/异常"，而它其实一直在用。
+    """
+    import glob as _glob
+    cands = [
+        os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "DSH Desktop",
+                     "resources", "app", "node_modules"),
+        os.path.join(os.environ.get("PROGRAMFILES", ""), "DSH Desktop",
+                     "resources", "app", "node_modules"),
+    ]
+    for c in cands:
+        if c and os.path.isdir(c):
+            return c
+    return None
+
+
+def resolve_plugin_dir(name, root, app_nm=None):
+    """插件目录解析：先 profile，再 Electron 主包。返回 (path, where)。"""
+    p = os.path.join(root, "node_modules", name)
+    if os.path.isdir(p):
+        return p, "profile"
+    if app_nm:
+        p2 = os.path.join(app_nm, name)
+        if os.path.isdir(p2):
+            return p2, "bundled"
+    return None, None
+
+
+def dsh_profile_plugins(root):
+    """DSH profile 里**真正加载的**插件列表。
+
+    实测（2026-10-19）：界面「已安装插件」读的是 package.json 的
+    `dsh.profile.bundles`，**不是** `dependencies`。两者会不一致：
+      dependencies 只有 4 个 npm 安装记录，
+      bundles 里有 7 项（含 2 个核心 bundle + dshmarket 这个内置插件）。
+    只扫 dependencies 会漏掉 dshmarket —— 而界面上明明列着它。
+
+    返回 [(name, kind)]，kind 为 "plugin" / "core" / "installed-not-enabled"。
+    """
+    pj = load_json(os.path.join(root, "package.json"), {}) or {}
+    bundles = (((pj.get("dsh") or {}).get("profile") or {}).get("bundles") or [])
+    deps = set((pj.get("dependencies") or {}).keys())
+    out = []
+    for name in bundles:
+        if not isinstance(name, str):
+            continue
+        kind = "core" if name.startswith(CORE_BUNDLE_PREFIX) else "plugin"
+        out.append((name, kind))
+    listed = {n for n, _ in out}
+    for name in deps:
+        if name not in listed:
+            out.append((name, "installed-not-enabled"))
+    return out
+
+
 def discover_assets(root, manifests, mode="dirs", quiet=False):
     """Find assets under `root`.
 
     mode="dirs": each subdir with a manifest (scoped @scope/name dirs descended one level).
-    mode="deps": read <root>/package.json dependencies and resolve each to
-                 <root>/node_modules/<name> (npm/pnpm layout).
+    mode="deps": DSH profile. 已装插件的权威来源是 `dsh.profile.bundles`
+                 （界面「已安装」读这个），不是 `dependencies`；两者不一致时
+                 以 bundles 为准，并把"装了但没启用"的另列出来。
+                 Each resolves to <root>/node_modules/<name>.
 
     quiet=True suppresses the `[skip]` chatter (used by `hosts`, which only wants counts).
     """
@@ -354,11 +418,23 @@ def discover_assets(root, manifests, mode="dirs", quiet=False):
         return []
     candidates = []
     if mode == "deps":
-        pj = load_json(os.path.join(root, "package.json"), {}) or {}
-        for dep in (pj.get("dependencies") or {}).keys():
-            p = os.path.join(root, "node_modules", dep)
-            if os.path.isdir(p):
-                candidates.append((dep, p))
+        skipped_core, missing = [], []
+        app_nm = app_node_modules()
+        for dep, kind in dsh_profile_plugins(root):
+            if kind == "core":
+                skipped_core.append(dep)
+                continue
+            p, where = resolve_plugin_dir(dep, root, app_nm)
+            if p:
+                candidates.append((dep, p, where))
+            else:
+                missing.append(dep)
+        if skipped_core and not quiet:
+            print(f"[core] 跳过 {len(skipped_core)} 个核心 bundle（不是用户插件）："
+                  f"{', '.join(skipped_core)}")
+        if missing and not quiet:
+            print(f"{WARN_MARK} {len(missing)} 个插件在 profile 里声明但找不到文件"
+                  f"（界面会显示「未安装/异常」）：{', '.join(missing)}")
     else:
         for name in sorted(os.listdir(root)):
             p = os.path.join(root, name)
@@ -377,12 +453,12 @@ def discover_assets(root, manifests, mode="dirs", quiet=False):
                 for sub in sorted(os.listdir(p)):
                     sp = os.path.join(p, sub)
                     if os.path.isdir(sp):
-                        candidates.append((name + "/" + sub, sp))
+                        candidates.append((name + "/" + sub, sp, "dirs"))
             else:
-                candidates.append((name, p))
+                candidates.append((name, p, "dirs"))
 
     out = []
-    for name, p in candidates:
+    for name, p, where in candidates:
         manifest = None
         for m in manifests:
             mp = os.path.join(p, m)
@@ -418,6 +494,7 @@ def discover_assets(root, manifests, mode="dirs", quiet=False):
             "risk": risk,
             "capabilities": capability_surface(p, manifest),
             "path": os.path.abspath(p),
+            "origin": where,     # profile（装进 profile）/ bundled（Electron 主包自带）/ dirs
         })
     return out
 

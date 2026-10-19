@@ -36,6 +36,10 @@ C="scripts/console.py"                       # 在仓库根目录执行
 "$PY" "$C" --host claude-code scan                # Claude Code skill
 "$PY" "$C" --host deepseek --root <插件目录> scan  # DeepSeek harness 插件
 "$PY" "$C" --host deepseek status                 # 插件折旧表
+
+# 注意：DSH 的「已安装插件」以 profile 的 package.json 里
+# `dsh.profile.bundles` 为准，**不是** `dependencies`。两者会不一致，
+# scan 会同时报出「bundled（Electron 主包自带）」「装了但未启用」「声明了但找不到文件」。
 ```
 
 每个宿主写各自的 `registry.<host>.json`，互不覆盖；baseline / golden 共享。

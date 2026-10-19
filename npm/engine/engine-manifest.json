@@ -36,8 +36,8 @@
     },
     {
       "path": "scripts/console.py",
-      "bytes": 87329,
-      "sha256": "d97eebf6ac39924a09899cb6f67a0ad7b10300b8e37ad05c597153e78921bf5e"
+      "bytes": 90575,
+      "sha256": "df1eb0b61442b1920327405ce266ac1431d957124828a40e66567362bcb3e7a2"
     },
     {
       "path": "scripts/fingerprint.py",
@@ -66,8 +66,8 @@
     },
     {
       "path": "USAGE.md",
-      "bytes": 13361,
-      "sha256": "6215817a424e83b5167c68da947d38d53c6ee9ad69040392fb02e8962e61eda7"
+      "bytes": 13640,
+      "sha256": "326804a056df6cb6bb36cf5a0cf8ca2a0e1eead5b7622dcc5bb59ab942cb2f4a"
     }
   ]
 }
