@@ -242,9 +242,17 @@ function runStartupAudit(ctx) {
         fs.writeFileSync(path.join(DATA_DIR, 'last-audit.txt'), text, 'utf8')
       } catch {}
       const needsAction = /🔴|⬆️/.test(text)
+      // 「查不了」不能说成「没问题」。下面三种情况都是"没数据"，必须单独说。
+      const blind = []
+      if (/版本面没查到任何数据/.test(text)) blind.push('版本不可查')
+      if (/没有可读日志/.test(text)) blind.push('无日志')
+      if (/全都没有基线/.test(text)) blind.push('无基线')
       const summary = (text.match(/🔴[^\n]*|⬆️[^\n]*|✅[^\n]*/g) || []).join(' / ')
-      ctx.logger?.[needsAction ? 'warn' : 'info']?.(
-        `${PLUGIN_NAME}: 启动体检${needsAction ? '有待处理项' : '无异常'} — ${summary || '见 last-audit.txt'}`,
+      const label = needsAction
+        ? '有待处理项'
+        : (blind.length ? `结论不完整（${blind.join('/')}）` : '未发现异常')
+      ctx.logger?.[needsAction ? 'warn' : (blind.length ? 'info' : 'info')]?.(
+        `${PLUGIN_NAME}: 启动体检 ${label} — ${summary || '详见 last-audit.txt'}`,
       )
     } catch (err) {
       ctx.logger?.info?.(`${PLUGIN_NAME}: 启动体检跳过（${err && err.message}）`)

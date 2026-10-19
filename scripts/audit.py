@@ -107,8 +107,32 @@ def main(argv):
     reg_path = os.path.join(ROOT, "registry.%s.json" % host)
     reg = load_json(reg_path)
     if not reg:
-        print("还没有 registry.%s.json —— 先跑一次 scan（或让 audit 自己扫）" % host)
-        return 1
+        # 首次运行（陌生人下载后的第一眼）——不能让人先去敲 scan。
+        # 自己扫一次；扫失败才报错，并把原因说清。
+        if "--no-scan" in argv:
+            print("还没有 registry.%s.json（--no-scan：不自动扫描）" % host)
+            return 1
+        print("首次运行：还没有注册表，先自动扫描一次…")
+        try:
+            import subprocess
+            rs = subprocess.run(
+                [sys.executable, os.path.join(HERE, "console.py"),
+                 "--host", host, "scan"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=180)
+            if rs.returncode != 0:
+                print("[err] 自动扫描失败（exit %s）：" % rs.returncode)
+                print((rs.stdout or "")[-800:])
+                print((rs.stderr or "")[-400:])
+                return 1
+        except Exception as e:
+            print("[err] 自动扫描失败：%s" % e)
+            return 1
+        reg = load_json(reg_path)
+        if not reg:
+            print("[err] 扫描后仍找不到 registry.%s.json" % host)
+            return 1
+        print("扫描完成：%d 个资产\n" % len(reg.get("assets") or {}))
     assets = reg.get("assets") or {}
     bl = load_json(os.path.join(ROOT, "baseline-results.json"), {"results": []}) or {}
     rows = bl.get("results") or []
@@ -215,7 +239,23 @@ def main(argv):
     if not any(buckets.values()):
         print("\n  没有可报告的资产")
 
+    # 覆盖度：把"查不了"和"查了没问题"分开说。
+    # 这是最容易出错的地方——没数据时打"无异常"就是假绿灯。
+    checked_version = sum(1 for it in
+                          (buckets["upgrade"] + buckets["ok"] + buckets["fix"]
+                           + buckets["untested"]) if it["latest"])
+    checked_runtime = bool(logs)
+    tested = len(buckets["ok"]) + len(buckets["fix"])
     print(f"\n{'='*70}")
+    print(f"体检覆盖度：版本 {checked_version}/{len(assets)}"
+          f"  · 运行时 {'已读日志' if checked_runtime else '无日志可读'}"
+          f"  · 有基线 {tested}/{len(assets)}")
+    if not checked_version:
+        print("  ⚠️ 版本面没查到任何数据（网络不可达？）—— 这不等于'已是最新'")
+    if not checked_runtime:
+        print("  ⚠️ 没有可读日志 —— 这不等于'运行正常'")
+    if tested == 0:
+        print("  ⚠️ 全都没有基线 —— 这不等于'都没问题'，只是没测过")
     print("口径：版本来自 npm registry（权威）；市场条目只作参考。")
     print("      版本落后 ≠ 该淘汰（可能是上游 breaking change 未适配）。")
     print("      没基线 ≠ 该删（只是没测过）。")
