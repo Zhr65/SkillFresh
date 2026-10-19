@@ -1150,5 +1150,53 @@ class MultiModelTests(unittest.TestCase):
             console.configure_data_dir(ROOT)
 
 
+class AlternativeTests(unittest.TestCase):
+    """市场替代推荐：找到真同类，且不把无关插件混进来。"""
+
+    def setUp(self):
+        sys.path.insert(0, SCRIPTS)
+        import audit
+        self.audit = audit
+        self.mkt = {
+            "@wxg-prc-cpg/browser-skill-dsh-plugin": {
+                "name": "@wxg-prc-cpg/browser-skill-dsh-plugin", "category": "tools",
+                "installCount": 0, "description": {"zh": "浏览器自动化"}},
+            "dsh-plugin-browserskill": {
+                "name": "dsh-plugin-browserskill", "category": "tools",
+                "installCount": 120, "growth7d": 422, "pushedAt": "2026-10-15T00:00:00Z",
+                "description": {"zh": "通过 CLI 与扩展让智能体操控浏览器"}},
+            "dsh-memory-plugin": {
+                "name": "dsh-memory-plugin", "category": "memory",
+                "installCount": 444, "description": {"zh": "长期记忆与知识检索"}},
+        }
+
+    def test_finds_real_alternative(self):
+        alts = self.audit.find_alternatives(
+            "@wxg-prc-cpg/browser-skill-dsh-plugin", self.mkt, "0.3.3")
+        names = [a["name"] for a in alts]
+        self.assertIn("dsh-plugin-browserskill", names, "应找到真正的浏览器替代")
+
+    def test_excludes_unrelated(self):
+        alts = self.audit.find_alternatives(
+            "@wxg-prc-cpg/browser-skill-dsh-plugin", self.mkt, "0.3.3")
+        names = [a["name"] for a in alts]
+        self.assertNotIn("dsh-memory-plugin", names,
+                         "记忆插件不该被当成浏览器插件的替代（实测误报）")
+
+    def test_ignores_tiny_installs(self):
+        mkt = dict(self.mkt)
+        mkt["tiny-browser-thing"] = {
+            "name": "tiny-browser-thing", "category": "tools", "installCount": 1,
+            "description": {"zh": "另一个浏览器工具"}}
+        alts = self.audit.find_alternatives(
+            "@wxg-prc-cpg/browser-skill-dsh-plugin", mkt, "0.3.3")
+        self.assertNotIn("tiny-browser-thing", [a["name"] for a in alts],
+                         "安装量 1 的不算'更好的'")
+
+    def test_empty_market_is_safe(self):
+        self.assertEqual(self.audit.find_alternatives("x", None, "1.0"), [])
+        self.assertEqual(self.audit.find_alternatives("x", {}, "1.0"), [])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

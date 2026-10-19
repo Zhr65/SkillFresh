@@ -90,6 +90,49 @@ def probe_evidence(logdir):
     return hits
 
 
+def find_alternatives(name, mkt, installed_version, limit=3):
+    """找市场里可能替代这个插件的东西 —— 用户视角：「有没有更好的」。
+
+    替代判定（保守，宁可少报 —— 报错的替代比不报更糟）：
+      ① 名字/描述**共享有意义的词**（长度≥5，排除 memory/plugin/dsh 这类通用词）
+      ② 或者同 category 且安装量不低于它
+    必须**安装量 ≥ 它的 1/3**，否则不算"更好的"。
+    """
+    if not mkt or not isinstance(mkt, dict):
+        return []
+    me = mkt.get(name)
+    cat = (me or {}).get("category")
+    base_install = int((me or {}).get("installCount") or 0)
+    # 太通用的词会造成误报（实测：browser 插件的替代里混进了 memory 插件）。
+    # 注意：browser / memory / model 这些是**功能词**，不能排除 ——
+    # 排除了就找不到真正的同类（它们的替代项正是靠这些词命中的）。
+    GENERIC = {"dsh", "plugin", "plugins", "skill", "skills", "agent", "agents",
+               "tool", "tools", "harness", "deepseek", "coding", "connect",
+               "extension", "widget", "core", "base"}
+    toks = {t for t in re.split(r"[-_/@.]+", name.lower())
+            if len(t) >= 5 and t not in GENERIC}
+    out = []
+    for n, p in mkt.items():
+        if n == name:
+            continue
+        desc = str((p.get("description") or {}).get("zh")
+                   or (p.get("description") or ""))
+        shared = any(t in n.lower() or t in desc.lower() for t in toks)
+        same_cat = bool(cat) and p.get("category") == cat
+        if not (shared or same_cat):
+            continue
+        inst = int(p.get("installCount") or 0)
+        # 安装量太低的不算替代（"更好的"至少得有人用）
+        if inst < max(10, base_install // 3):
+            continue
+        out.append({"name": n, "installs": inst,
+                    "growth": p.get("growth7d"), "pushed": (p.get("pushedAt") or "")[:10],
+                    "cat": p.get("category"), "desc": desc[:70],
+                    "why": "功能相近" if shared else "同类"})
+    out.sort(key=lambda x: -(x["installs"] or 0))
+    return out[:limit]
+
+
 def load_json(p, default=None):
     try:
         with open(p, encoding="utf-8-sig") as fh:
@@ -121,8 +164,19 @@ def main(argv):
     if "--host" in argv:
         host = argv[argv.index("--host") + 1]
     offline = "--offline" in argv
+    # 透传给内部 scan：否则 generic 这种没有默认根的宿主会扫不动
+    root_arg = []
+    if "--root" in argv:
+        root_arg = ["--root", argv[argv.index("--root") + 1]]
+    out_arg = []
+    if "--out" in argv:
+        out_arg = ["--out", argv[argv.index("--out") + 1]]
+    # 数据目录：--out 必须生效（和 console.py 同一口径）。
+    # 以前 audit 只读 ROOT，导致 --out 指的目录读不到注册表。
+    DATA = os.path.abspath(os.path.expanduser(
+        argv[argv.index("--out") + 1])) if out_arg else ROOT
 
-    reg_path = os.path.join(ROOT, "registry.%s.json" % host)
+    reg_path = os.path.join(DATA, "registry.%s.json" % host)
     reg = load_json(reg_path)
     if not reg:
         # 首次运行（陌生人下载后的第一眼）——不能让人先去敲 scan。
@@ -135,7 +189,7 @@ def main(argv):
             import subprocess
             rs = subprocess.run(
                 [sys.executable, os.path.join(HERE, "console.py"),
-                 "--host", host, "scan"],
+                 "--host", host, *root_arg, *out_arg, "scan"],
                 capture_output=True, text=True, encoding="utf-8", errors="replace",
                 timeout=180)
             if rs.returncode != 0:
@@ -164,7 +218,7 @@ def main(argv):
             s["version"] = live
         elif live and not s.get("version"):
             s["version"] = live
-    bl = load_json(os.path.join(ROOT, "baseline-results.json"), {"results": []}) or {}
+    bl = load_json(os.path.join(DATA, "baseline-results.json"), {"results": []}) or {}
     rows = bl.get("results") or []
     active = reg.get("active_model")
 
@@ -185,7 +239,7 @@ def main(argv):
             import subprocess
             rs = subprocess.run(
                 [sys.executable, os.path.join(HERE, "console.py"),
-                 "--host", host, "scan"],
+                 "--host", host, *root_arg, *out_arg, "scan"],
                 capture_output=True, text=True, encoding="utf-8", errors="replace",
                 timeout=180)
             if rs.returncode == 0:
@@ -198,19 +252,30 @@ def main(argv):
 
     # 基线统计（只算当前模型的）
     base = {}
+    model_unknown = active in ("v-unknown", "", None)
+    other_models = {}      # 资产 -> {模型: {n,p}}，保留其他模型的历史
     for r in rows:
-        if r.get("model") and active and r["model"] != active:
+        if not model_unknown and r.get("model") and r["model"] != active:
+            od = other_models.setdefault(r["skill"], {}).setdefault(
+                r["model"], {"n": 0, "p": 0})
+            od["n"] += 1
+            od["p"] += 1 if r.get("passed") else 0
             continue
-        d = base.setdefault(r["skill"], {"n": 0, "p": 0, "k": 0, "attrs": []})
+        d = base.setdefault(r["skill"], {"n": 0, "p": 0, "k": 0, "attrs": [], "model": r.get("model")})
         d["n"] += 1
         d["p"] += 1 if r.get("passed") else 0
         d["k"] = max(d["k"], r.get("k") or 1)
         if not r.get("passed") and r.get("attribution"):
-            d["attrs"].append(str(r["attribution"]).lower())
+            d["attrs"].append(str(r.get("attribution")).lower())
+
+    # 模型变更检测（用户视角）：切了模型，以前测过的都不算数了，
+    # 但用户未必知道 —— 主动说出来，并给出「怎么补测」。
+    prev_models = sorted({m for d in other_models.values() for m in d})
+    model_changed = bool(prev_models) and not model_unknown
 
     logs = None
     if not offline:
-        cfg = load_json(os.path.join(ROOT, "hosts.json"), {}) or {}
+        cfg = load_json(os.path.join(DATA, "hosts.json"), {}) or {}
         prof = ((cfg.get("hosts") or {}).get(host) or {})
         for pat in (prof.get("logs") or []):
             import glob
@@ -243,7 +308,8 @@ def main(argv):
 
         item = {"name": name, "installed": installed, "latest": latest,
                 "behind": behind, "base": b, "rate": rate, "faults": faults,
-                "status": s.get("status")}
+                "status": s.get("status"),
+                "others": other_models.get(name) or {}}
 
         # 判定顺序：先"能不能用"，再"该不该升"
         if rate is not None and rate == 0 and faults:
@@ -265,7 +331,17 @@ def main(argv):
     if mkt_meta and mkt_meta != "offline":
         print(f"  市场快照：{mkt_meta[:19]}（{len(mkt or {})} 条）")
 
-    def show(title, items, advice):
+    # 用户视角的模型变更提示：切了模型，以前测过的都不算数了。
+    if model_changed:
+        print(f"\n{BULB if False else '⚠'} 检测到模型变更：之前测的是 {'、'.join(prev_models)}，"
+              f"现在是 {active}")
+        need = [n for n in assets if n not in base or not base[n]["n"]]
+        print(f"   这 {len(need)} 个资产在新模型上**还没测过** —— 旧模型的通过率不能代表它")
+        print("   在新模型上的表现。想补测（一条命令生成执行清单）：")
+        print("     console.py baseline --from-seed")
+        print("   ⓘ 旧模型上的判定已保留，切换回来还能看到（不会被清零）")
+
+    def show(title, items, advice, suggest_alts=False):
         if not items:
             return
         print(f"\n{title}（{len(items)}）")
@@ -284,12 +360,22 @@ def main(argv):
             print("      " + " | ".join(bits))
             if it["faults"]:
                 print("      ↳ " + it["faults"][-1])
+            # 用户视角：「市场里有没有更好的」——只在真有问题时才问，避免噪声
+            if suggest_alts and mkt:
+                alts = find_alternatives(it["name"], mkt, it["installed"])
+                if alts:
+                    print("      ↳ 市场里同类的还有：")
+                    for a in alts:
+                        print("        · %-34s 安装 %-5s 增长 %-5s 更新 %s" % (
+                            a["name"][:34], a["installs"], a["growth"], a["pushed"]))
+                        if a["desc"]:
+                            print("          %s" % a["desc"])
         print(f"  → {advice}")
 
     show("🔴 建议先修（跑不起来 / 通过率低）", buckets["fix"],
-         "修配置或环境；修不好再考虑停用——别急着重写")
+         "修配置或环境；修不好再考虑停用——别急着重写", suggest_alts=True)
     show("⬆️ 建议升级（市场有新版）", buckets["upgrade"],
-         "升级前看一眼 changelog 有没有 breaking change；升完 scan 一次")
+         "升级前看一眼 changelog 有没有 breaking change；升完 scan 一次", suggest_alts=True)
     show("✅ 正常", buckets["ok"], "保持现状")
     show("⚪ 未测（没有基线，无法判断好坏）", buckets["untested"],
          "这不是故障。想测就跑：console.py baseline --from-seed（seed 里有现成用例）")
