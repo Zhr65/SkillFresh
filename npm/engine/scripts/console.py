@@ -1830,7 +1830,32 @@ def cmd_find(args):
         print(f"\n没有找到与「{q}」相关的已装 {prof['label']}。")
         if domains:
             print(f"（识别出功能域 {domains[0][0]}，但已装资产里没有名字相关的）")
-        print("行动建议：可以 suggest --need 看要不要装新的；或用内置能力做。")
+        # 用户没装 ≠ 没答案：路由的天花板是"装了什么"，没装时就地给市场候选，
+        # 不把用户再推回 suggest 命令（那等于让用户多跑一步）。
+        # 搜索词必须**压缩到域核心词**：实测整句"帮我建个数据库表"去搜，
+        # DSH 零命中、SkillHub 返回防骗大师 —— 垃圾推荐比不推荐更糟。
+        tax = {t["slug"]: t for t in TAXONOMY}
+        # 优先级：TAXONOMY 人工调过的搜索词 > 功能域英文 > 原话
+        term = None
+        for _n, t, _k in need_categories(ql):
+            term = t["query"]
+            break
+        if not term and domains:
+            term = domains[0][0]
+        if not term:
+            term = q
+        print(f"\n{BULB} 去市场看看有没有现成的（关键词：{term}）：")
+        try:
+            import market as _market
+            _market.render_dsh(term, 3)
+            print()
+            _market.render_skillhub(term, 3)
+        except Exception as e:
+            print(f"   [err] 市场不可达：{e}")
+            print("   行动建议：先用内置能力做；或稍后再试市场。")
+            return 3
+        print("\n行动建议：挑一个装上（告诉我装哪个），装完 scan 一次就能被路由到；")
+        print("          或先用内置能力做初版。")
         return 3
 
     print(f"\n「{q}」→ 找到 {len(name_hits) + len(dom_hits) + len(desc_fallback)} 个：\n")

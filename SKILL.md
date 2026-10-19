@@ -1,7 +1,7 @@
 ---
 name: skill-auditor
 description: "Use when evaluating a skill OR plugin's lifecycle across agents: detecting capability degradation after a model update, judging whether a new skill/plugin is effective and fits the user, or auditing whether to keep/rewrite/retire one. Works in WorkBuddy (skills), DeepSeek harness (plugins), and other hosts via adapters. Triggers: '评测这个 skill', '评测这个插件', '模型升级后 skill 还灵不灵', '新 skill 好不好用', '这个 skill 适合我吗', 'deepseek 插件好不好用', '跨 agent 评估能力', '做个 skill 并按评测流程走'."
-version: 0.8.2
+version: 0.8.3
 allowed-tools:
   - Read
   - Write

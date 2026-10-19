@@ -1,6 +1,6 @@
 {
   "name": "skill-auditor",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "description": "能力折旧表：跨宿主的 skill/插件回归、降级归因与推荐",
   "skills": "./skill"
 }

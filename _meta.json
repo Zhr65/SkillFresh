@@ -1,7 +1,7 @@
 {
   "slug": "skill-auditor",
   "title": "能力折旧表 / Capability Depreciation",
-  "version": "0.8.2",
+  "version": "0.8.3",
   "author": "zhr15",
   "runtime": "generic",
   "emoji": "📉",
