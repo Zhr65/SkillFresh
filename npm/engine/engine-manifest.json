@@ -1,6 +1,6 @@
 {
   "name": "dsh-skill-auditor",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "source": "skill-auditor (upstream engine)",
   "fileCount": 30,
   "files": [
@@ -147,7 +147,7 @@
     {
       "path": "SKILL.md",
       "bytes": 21800,
-      "sha256": "b71d78eaaa03e32b7917d7e5cf5d939a6e69ae6d417d20d7f51df364403cb889"
+      "sha256": "c43e08c02cf8b76859477d2bea8e2f4d36439577c79defb22448729cf4442200"
     },
     {
       "path": "USAGE.md",
