@@ -1051,5 +1051,45 @@ class AuditVersionTests(unittest.TestCase):
         self.assertEqual(self.audit.live_version(root, "plug-y"), "0.7.8")
 
 
+class UnknownModelStampTests(unittest.TestCase):
+    """v-unknown 表示「没设过」，不是「另一个模型」——不能拿它过滤掉真实基线。"""
+
+    def setUp(self):
+        self.tmp = mkdtemp()
+        self.data = os.path.join(self.tmp, "data")
+        self.assets = os.path.join(self.tmp, "assets")
+        make_skill(self.assets, "demo-skill")
+        write_json(os.path.join(self.data, "model-version.json"),
+                   {"version": "v-unknown", "bumped_at": "x"})
+        write_json(os.path.join(self.data, "baseline-results.json"), {
+            "schema_version": 1, "baseline_model": "v-model-A",
+            "results": [{"skill": "demo-skill", "case_id": "c1", "model": "v-model-A",
+                         "passed": True, "k": 1, "fingerprint": "f"}],
+        })
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _scan(self):
+        p = run_console("--host", "generic", "--root", self.assets, "--out", self.data, "scan")
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        with open(os.path.join(self.data, "registry.generic.json"), encoding="utf-8") as fh:
+            return p, json.load(fh)["assets"]["demo-skill"]
+
+    def test_unknown_does_not_discard_baseline(self):
+        p, asset = self._scan()
+        self.assertEqual(asset["baseline_n"], 1,
+                         "模型戳 unknown 时不能把真实基线当成'旧模型'丢弃")
+        self.assertEqual(asset["status"], "strong")
+        self.assertIn("模型戳未设置", p.stdout, "要明确提示通过率可能来自别的模型")
+
+    def test_check_refuses_to_green_light_unknown(self):
+        self._scan()
+        p = run_console("--host", "generic", "--out", self.data, "check")
+        self.assertEqual(p.returncode, 3,
+                         "unknown 时不能说'无需重跑'，只能说'没法判断'")
+        self.assertIn("没法判断", p.stdout)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

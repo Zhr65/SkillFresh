@@ -1041,12 +1041,16 @@ def cmd_scan(args):
 
     baseline = load_json(BASELINE, {"results": []})
     active_model = get_active_model(host)
+    # v-unknown 表示「没设过模型戳」，不是「另一个模型」。
+    # 拿它当过滤器会把用户真实跑过的基线全部丢弃，显示成「未验证」——
+    # 用户明明测过却被告知没测过。unknown 时不过滤，但要在输出里明确标注。
+    model_known = active_model not in ("v-unknown", "", None)
     base_by_asset = {}
     skipped = 0
     for r in baseline.get("results", []):
         # 只统计当前模型戳下的判定。模型换代后还没重跑的资产会回到 unverified，
         # 这是有意的：旧模型上的 100% 不能证明新模型上还灵（否则就是假绿灯）。
-        if active_model and r.get("model") and r["model"] != active_model:
+        if model_known and r.get("model") and r["model"] != active_model:
             skipped += 1
             continue
         s = r["skill"]
@@ -1152,6 +1156,10 @@ def cmd_scan(args):
     print(f"     active_model={active_model}  baseline_model={baseline.get('baseline_model')}")
     if skipped:
         print(f"     {WARN_MARK} {skipped} 条基线属于旧模型，未计入（模型换代后先重跑 golden set 再 scan）")
+    if not model_known and base_by_asset:
+        print(f"     {BULB} 模型戳未设置（v-unknown）：当前**不过滤**基线，"
+              "所以这些通过率可能来自别的模型")
+        print(f"        要按模型区分请先：python console.py --host {host} stamp --infer")
     drifted = [(k, v["caps_diff"]) for k, v in out_assets.items() if v.get("caps_diff")]
     if drifted:
         print(f"[caps] {len(drifted)} 个资产的能力面有变化（这是「它对外提供的东西变了」，与通过率无关）：")
@@ -1215,6 +1223,16 @@ def cmd_check(args):
         return 1
     active = get_active_model(host)
     last = reg.get("last_regression_model", active)
+
+    # v-unknown 等于「从没设过模型戳」。这种情况**不能说「无需重跑」**——
+    # unknown == unknown 会永远绿灯，模型换代永远检测不到（假绿灯）。
+    if active in ("v-unknown", "", None) or last in ("v-unknown", "", None):
+        print(f"{WARN_MARK}  模型戳未设置（{host}）：active={active} · last_regression={last}")
+        print("    现在无法判断模型有没有换代 —— 这不是「无需重跑」，是「没法判断」。")
+        print("    设一个模型戳后再看：")
+        print(f"      python console.py --host {host} stamp --infer     # 尝试推断")
+        print(f"      python console.py --host {host} stamp <版本号>    # 手动指定")
+        return 3
     if active != last:
         print(f"{WARN_MARK}  检测到模型版本变更（{host}）：{last}  →  {active}")
         print("    重跑回归以更新折旧表：")

@@ -161,11 +161,16 @@ export function ensureEngine() {
   if (!fs.existsSync(hostsCfg)) writeJson(hostsCfg, DEFAULT_HOSTS)
   const stamp = path.join(DATA_DIR, 'model-version.json')
   if (!fs.existsSync(stamp)) {
-    writeJson(stamp, {
-      version: 'v-unknown',
-      bumped_at: new Date().toISOString(),
-      note: 'first install — 跑一次 `bump <当前模型版本>` 让 check 有参照',
-    })
+    // 首次安装：优先写**真实模型串**，而不是 v-unknown。
+    // 原因：v-unknown 会让 check 永远说"无需重跑"（unknown == unknown），
+    // 模型换代永远检测不到 —— 等于这个功能对陌生人失效。
+    const guess = inferEnvModel()
+    writeJson(stamp, guess
+      ? { version: guess.model, bumped_at: new Date().toISOString(),
+          note: `first install (source: ${guess.source})` }
+      : { version: 'v-unknown', bumped_at: new Date().toISOString(),
+          note: 'first install — 未能在宿主环境推断出模型；'
+              + '跑一次 `bump <当前模型版本>` 让 check 有参照（否则 check 恒为"无需重跑"）' })
   }
 
   return { dataDir: DATA_DIR, action, version: PACKAGE_VERSION }
@@ -277,6 +282,34 @@ export function engineInfo() {
 // 是有意的：它证明"这一刻宿主在跑、插件活着"，并且一旦宿主将来暴露模型字段，
 // 事件流自动开始携带真值，stamp --infer --from-events 就能消费，无需改代码。
 // 绝不编造模型串：unknown 就是 unknown。
+
+/**
+ * 从宿主进程环境尽力推断当前模型串。推断不到返回 null（绝不编造）。
+ * 只在首次安装写 model-version.json 时用 —— 那时还拿不到 cordis ctx。
+ */
+export function inferEnvModel() {
+  const keys = ['SKILL_AUDITOR_MODEL', 'CURRENT_MODEL', 'MODEL_VERSION', 'OPENAI_MODEL']
+  for (const k of keys) {
+    const v = process.env[k]
+    if (v && String(v).trim()) return { model: String(v).trim(), source: `env:${k}` }
+  }
+  // DSH / opencode 常见的 profile 配置里可能带默认模型
+  const cfgCands = [
+    path.join(DSH_HOME, 'settings.json'),
+    path.join(os.homedir(), '.workbuddy-ai', 'settings.json'),
+  ]
+  for (const p of cfgCands) {
+    try {
+      const d = JSON.parse(fs.readFileSync(p, 'utf8'))
+      for (const key of ['model', 'modelVersion', 'currentModel', 'activeModel', 'defaultModel']) {
+        const v = d?.[key]
+        if (typeof v === 'string' && v.trim()) return { model: v.trim(), source: `cfg:${p}` }
+        if (v && typeof v === 'object' && v.id) return { model: String(v.id), source: `cfg:${p}` }
+      }
+    } catch {}
+  }
+  return null
+}
 
 export function detectModel(ctx) {
   const fromEnv = process.env.SKILL_AUDITOR_MODEL || process.env.CURRENT_MODEL
