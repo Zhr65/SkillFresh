@@ -975,5 +975,50 @@ class DshProfileDiscoveryTests(unittest.TestCase):
         self.assertIn("dormant", names, "装了但没在 bundles 里的也要报出来")
 
 
+class AuditTests(unittest.TestCase):
+    """主动体检：版本对比 + 分档，且不因网络失败而假装结论。"""
+
+    def setUp(self):
+        sys.path.insert(0, SCRIPTS)
+        import audit
+        self.audit = audit
+
+    def test_version_compare(self):
+        self.assertEqual(self.audit.vtuple("1.66.5"), (1, 66, 5))
+        self.assertGreater(self.audit.vtuple("1.66.42"), self.audit.vtuple("1.66.5"),
+                           "字典序会错，必须按数字比")
+        self.assertGreater(self.audit.vtuple("0.10.0"), self.audit.vtuple("0.9.9"))
+        self.assertIsNone(self.audit.vtuple(""))
+
+    def test_behind_detection_is_numeric(self):
+        """dshmarket 1.66.5 vs 1.66.42 必须判为落后（字符串比较会判错）。"""
+        a = self.audit.vtuple("1.66.5")
+        b = self.audit.vtuple("1.66.42")
+        self.assertLess(a, b)
+
+    def test_offline_skips_network_not_fake(self):
+        """--offline 时不联网，且不应把资产标成'最新'。"""
+        # 直接验证 npm_latest 在不可达 URL 下返回 None 而不是抛异常
+        orig = self.audit.NPM
+        try:
+            self.audit.NPM = "http://127.0.0.1:1/%s/latest"
+            self.assertIsNone(self.audit.npm_latest("whatever"))
+        finally:
+            self.audit.NPM = orig
+
+    def test_probe_evidence_parses_faults(self):
+        tmp = mkdtemp()
+        try:
+            log = os.path.join(tmp, "x.log")
+            with open(log, "w", encoding="utf-8") as fh:
+                fh.write("2026-10-19T00:00:00Z [info] [plug-a] all good\n")
+                fh.write("2026-10-19T00:00:01Z [info] [plug-b] spawn bsk ENOENT\n")
+            hits = self.audit.probe_evidence(tmp)
+            self.assertIn("plug-b", hits)
+            self.assertNotIn("plug-a", hits)
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

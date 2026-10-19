@@ -4,12 +4,48 @@
 每个宿主有自己的模型版本戳 `model-version.<host>.json`（旧版单一 `model-version.json` 仍兼容读取），
 `console.py check` 对比注册表里的上次回归版本，版本变了就提示重跑。
 
-## 常用命令
+## 主动体检（`audit`）——装上就有结论，不用自己跑用例
+
+**这是最该先用的命令。** 它把三面证据合起来一次性给结论：
+
+| 面 | 数据来源 | 需要用户跑用例吗 |
+|---|---|---|
+| **版本** | npm registry 的 `latest` vs 已装版本 | ❌ 不需要（硬数据） |
+| **运行时** | 宿主日志里的报错（ENOENT / 401 / API 缺失） | ❌ 不需要 |
+| **基线** | 已有的判定通过率 | 只有这面需要 |
+
+```bash
+python scripts/console.py --host deepseek audit
+```
+
+输出分四档，每档一句话建议：
+
+```
+🔴 建议先修（跑不起来 / 通过率低）（3）
+  • @vectorize-io/hindsight-coding-agents   已装 0.8.1 | 基线 0/3 K=1
+  • @wxg-prc-cpg/browser-skill-dsh-plugin   已装 0.3.3 | 基线 0/3 | 4 条运行时故障
+      ↳ bsk probe failed (spawn bsk ENOENT)
+⬆️ 建议升级（市场有新版）（1）
+  • dshmarket                               已装 1.66.5 | 最新 1.66.42 ← 落后
+✅ 正常（1）
+  • dsh-whale-widget                        已装 0.4.2 | 基线 3/3
+⚪ 未测（没有基线）（1）
+  • ...
+```
+
+**DSH 插件会在宿主启动 8 秒后自动跑一次 audit**，结论写到
+`~/.dsh/skill-auditor/last-audit.txt`，日志里打一行摘要 —— **不阻塞启动、不自动卸载、不自动升级**。
+
+> 版本落后 ≠ 该淘汰：可能是上游有 breaking change 还没适配。
+> 没基线 ≠ 该删：只是没测过。
+
+
 
 ```bash
 PY=python                                    # 换成你自己的解释器（需 3.8+）
 C="scripts/console.py"                       # 在仓库根目录执行
 
+"$PY" "$C" --host deepseek audit        # ★ 主动体检：一条命令出全部结论（推荐）
 "$PY" "$C" --host workbuddy setup --model <当前模型版本>   # 首次安装：每个宿主一个版本戳 + golden 模板
 "$PY" "$C" --host workbuddy scan        # 扫描 -> registry.<host>.json（指纹 + 能力面 + 基线 + 维护面）
 "$PY" "$C" --host workbuddy status      # 折旧表：asset | 指纹 | 基线 | risk | caps | golden | 状态
@@ -23,6 +59,23 @@ C="scripts/console.py"                       # 在仓库根目录执行
 ```
 
 全局 `--out <dir>` 会把 registry / baseline / 模型戳 / golden 模板一起放到该目录——不再「只搬一半」。
+
+## 常用命令一览
+
+| 命令 | 作用 |
+|---|---|
+| `audit` | **主动体检**：版本对比 + 运行时故障 + 基线，一次给结论 |
+| `hosts` | 宿主配置与资产数 |
+| `scan` | 扫描资产，建/更新 registry |
+| `status` | 折旧表（含 K 列） |
+| `recommend` | 强/观察/未验证/跑不起来/已降级/精简 六档面板 |
+| `check` / `bump` / `stamp` | 模型换代检测（`stamp --infer` 推断不到会拒绝） |
+| `report --promote` | 出折旧报告并把结果并进基线 |
+| `probe` | 只读日志，找「装得像、跑不起来」 |
+| `suggest [--search]` | 缺能力推荐 / 不满侦测 / 市场搜候选 |
+| `seed audit` / `seed contribute` | 社区用例覆盖 / 贡献 |
+| `baseline --from-seed` | 用社区用例建基线（只取已装资产） |
+
 
 > 想先看效果不建数据：`python demo.py`（沙盒，几秒，`--clean` 清掉）。demo 每一步都检查退出码，失败会停。
 

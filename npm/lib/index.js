@@ -141,6 +141,17 @@ const TOOLS = [
     },
   ),
   tool(
+    'skill_audit_run',
+    '主动体检：一次给出全部结论——哪些该修（跑不起来/通过率低）、哪些该升级（市场有新版）、哪些正常、哪些没测过。对比已装版本与 npm registry 最新版，并读取运行时故障。只读，不卸载不升级。用户说「帮我看看插件有没有问题/该删哪个/要不要更新」时首选这个。',
+    { host: HOST_PARAM },
+    [],
+    async (args) => {
+      const res = await runConsole(buildArgv('audit', args), { timeout: 180000 })
+      if (res.code !== 0) return formatFailure(res, '主动体检')
+      return clean(res.stdout)
+    },
+  ),
+  tool(
     'skill_audit_suggest',
     '需求匹配：当用户当前的活儿没有任何已装 skill/插件能覆盖时，用一句话描述需求，返回该不该新增、新增什么、以及搜索词。先查已装注册表（避免重复装），查不到才落到分类表。',
     {
@@ -210,6 +221,35 @@ export function apply(ctx) {
     const ev = appendModelEvent(ctx)
     ctx.logger?.info?.(`${PLUGIN_NAME}: model event -> ${ev.model} (${ev.source})`)
   } catch {}
+  // 装上就开始体检：后台异步跑一次 audit，结论写进 DATA_DIR/last-audit.txt。
+  // **不阻塞启动、不自动卸载、不自动升级** —— 只报告，动作由用户决定。
+  runStartupAudit(ctx)
+}
+
+/** 启动体检：不 await、失败只记日志。 */
+function runStartupAudit(ctx) {
+  setTimeout(async () => {
+    try {
+      ensureEngine()
+      const res = await runConsole(['--host', defaultHost(), 'audit'],
+                                   { timeout: 120000 })
+      const text = String(res.stdout || '')
+      if (!text.trim()) return
+      try {
+        const fs = await import('node:fs')
+        const path = await import('node:path')
+        const { DATA_DIR } = await import('./engine.mjs')
+        fs.writeFileSync(path.join(DATA_DIR, 'last-audit.txt'), text, 'utf8')
+      } catch {}
+      const needsAction = /🔴|⬆️/.test(text)
+      const summary = (text.match(/🔴[^\n]*|⬆️[^\n]*|✅[^\n]*/g) || []).join(' / ')
+      ctx.logger?.[needsAction ? 'warn' : 'info']?.(
+        `${PLUGIN_NAME}: 启动体检${needsAction ? '有待处理项' : '无异常'} — ${summary || '见 last-audit.txt'}`,
+      )
+    } catch (err) {
+      ctx.logger?.info?.(`${PLUGIN_NAME}: 启动体检跳过（${err && err.message}）`)
+    }
+  }, 8000)
 }
 
 export default { name: PLUGIN_NAME, inject, apply }

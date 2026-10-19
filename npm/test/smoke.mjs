@@ -46,7 +46,7 @@ const ctx = {
 mod.apply(ctx)
 
 const names = registered.map((t) => t.name)
-check(names.length === 6, `注册 6 个工具（实际 ${names.length}）`, names.join(', '))
+check(names.length === 7, `注册 7 个工具（实际 ${names.length}）`, names.join(', '))
 for (const want of [
   'skill_audit_status',
   'skill_audit_recommend',
@@ -54,6 +54,7 @@ for (const want of [
   'skill_audit_scan',
   'skill_audit_suggest',
   'skill_audit_probe',
+  'skill_audit_run',
 ]) {
   check(names.includes(want), `含 ${want}`)
 }

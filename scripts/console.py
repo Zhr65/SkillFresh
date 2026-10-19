@@ -1348,6 +1348,25 @@ def read_tail(path, limit=PROBE_MAX_BYTES):
         return []
 
 
+def cmd_audit(args):
+    """主动体检：交给 audit.py（含版本对比 + 运行时故障 + 基线三面）。"""
+    audit_py = os.path.join(HERE, "audit.py")
+    if not os.path.isfile(audit_py):
+        print("[err] 找不到 audit.py（应与 console.py 同目录）")
+        return 1
+    cmd = [sys.executable, audit_py]
+    if getattr(args, "host", None):
+        cmd += ["--host", args.host]
+    elif getattr(args, "root", None) is None:
+        host, _ = resolve_host(args)
+        cmd += ["--host", host]
+    rc, out, err = run(cmd)
+    print(out)
+    if err:
+        print("[stderr]", err)
+    return rc
+
+
 def cmd_probe(args):
     host, prof = resolve_host(args)
     reg = load_registry(host)
@@ -1988,6 +2007,7 @@ def build_parser():
     pb = sub.add_parser("probe")
     pb.add_argument("--strict", action="store_true",
                     help="有运行时故障迹象时以退出码 1 结束（给 CI/脚本用）")
+    sub.add_parser("audit", help="主动体检：版本对比 + 运行时故障 + 基线，一次给结论")
     rp = sub.add_parser("report")
     rp.add_argument("--results", default=None,
                     help="results JSON (default: <data dir>/baseline-results.json)")
@@ -2027,6 +2047,7 @@ def main():
         "seed": cmd_seed,
         "recommend": cmd_recommend,
         "probe": cmd_probe,
+        "audit": cmd_audit,
         "report": cmd_report, "suggest": cmd_suggest,
         "discover": cmd_discover, "bootstrap": cmd_bootstrap, "onboard": cmd_onboard,
     }
