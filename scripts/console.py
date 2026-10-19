@@ -263,9 +263,34 @@ def load_json(path, default=None):
             with open(path, encoding="utf-8-sig", errors="replace") as f:
                 return json.load(f)
         except Exception:
-            return default
+            return _quarantine(path, "decode-failed", default)
+    except Exception as e:
+        # 审查 P0 后续护栏：registry/baseline 损坏时不能**静默**当空——
+        # 那会让 merge_baseline 把空基线当真写回，历史判定全丢。
+        # 隔离坏文件并大声告诉用户怎么修。
+        return _quarantine(path, str(e)[:60], default)
+
+
+def _quarantine(path, reason, default):
+    """坏文件隔离：改名留存 + 打印修复指引。返回 default，但绝不无声。"""
+    try:
+        bad = path + ".corrupt"
+        i = 1
+        while os.path.exists(bad):
+            bad = path + ".corrupt-%d" % i
+            i += 1
+        os.replace(path, bad)
+        base = os.path.basename(path)
+        print(f"{WARN_MARK} {base} 损坏（{reason}），已移到 {os.path.basename(bad)}")
+        if "registry" in base:
+            print(f"   修复：重新 scan 即可重建（金色/用例数据不受影响）")
+        elif "baseline" in base:
+            print(f"   修复：从 .corrupt 文件里人工找回判定记录，或用 report --promote 重建")
+        else:
+            print(f"   修复：删除或手工修复该文件后重跑")
     except Exception:
-        return default
+        pass
+    return default
 
 
 def write_json(path, obj):
@@ -1217,7 +1242,22 @@ def cmd_scan(args):
         "count": len(out_assets),
         "assets": out_assets,
     }
-    write_json(registry_path(host), registry)
+    # 安心③：scan 会重写 registry——写之前把上一版备份（保留最近 3 份）。
+    # registry 里的 baseline 摘要/工具清单是用户跑出来的数据，误扫坏不能一觉没了。
+    rp = registry_path(host)
+    try:
+        if os.path.exists(rp):
+            import glob as _g
+            bdir = os.path.join(os.path.dirname(rp), "backups")
+            os.makedirs(bdir, exist_ok=True)
+            stamp = now_iso().replace(":", "").replace("-", "")
+            shutil.copy2(rp, os.path.join(bdir, f"registry.{host}.{stamp}.json"))
+            olds = sorted(_g.glob(os.path.join(bdir, f"registry.{host}.*.json")))
+            for old in olds[:-3]:
+                os.remove(old)
+    except Exception:
+        pass  # 备份失败不阻塞主流程
+    write_json(rp, registry)
     print(f"[ok] registry.{host}.json -> {len(out_assets)} {prof['label']}(s)")
     print(f"     root={root}")
     print(f"     active_model={active_model}  baseline_model={baseline.get('baseline_model')}")
@@ -1293,7 +1333,39 @@ def cmd_status(args):
     if report_is_newer(host):
         print(f"  {WARN_MARK} 折旧报告比注册表新：report 的判定还没进面板，"
               "用 report --promote 合并基线后再 scan。")
+
+    # 人话摘要（方便②）：表格给要细节的人，这一段给所有人。
+    _status_plain_summary(reg)
     return 0
+
+
+def _status_plain_summary(reg):
+    """把折旧表翻译成三句话：几个能用的、几个有问题、下一步干什么。"""
+    assets = reg_assets(reg)
+    if not assets:
+        return
+    ok, bad, untested = [], [], []
+    for name, s in assets.items():
+        if s.get("eliminated"):
+            continue
+        st = s.get("status") or "unverified"
+        if st == "strong":
+            ok.append(name)
+        elif st in ("blocked", "degraded"):
+            bad.append((name, st))
+        else:
+            untested.append(name)
+    print()
+    if bad:
+        for n, st in bad:
+            what = "跑不起来（多半是配置/环境，不是该删）" if st == "blocked" else "有失败用例"
+            print(f"  ⚠ {n} {what}")
+    if untested:
+        print(f"  ⚪ {len(untested)} 个没测过：{', '.join(untested[:5])}{'…' if len(untested) > 5 else ''}")
+        print("     （没测 ≠ 不好。想知道好不好：console.py baseline --from-seed）")
+    if ok:
+        print(f"  ✓ {len(ok)} 个正常，放心用")
+    print("  下一步：告诉我某件想做的事（自动匹配插件），或说「体检」看完整报告。")
 
 
 def cmd_check(args):
@@ -2526,6 +2598,15 @@ def main():
     # --out 必须在此之前落地：所有数据路径（registry/baseline/model/golden）都从它派生。
     configure_data_dir(getattr(args, "out", None))
     cmd = args.cmd or "status"
+    # 无参数兜底（方便①）：裸跑 console.py 时不甩 help，直接给最常用的体检结论——
+    # 用户不该需要记住任何命令。
+    if not getattr(args, "cmd", None):
+        try:
+            rc = cmd_audit(args)
+        except SystemExit:
+            rc = 1
+        print("\n常用命令：can <任务>（能不能做）· find <功能>（找插件）· audit（体检）")
+        return rc
     table = {
         "hosts": cmd_hosts, "setup": cmd_setup, "scan": cmd_scan, "status": cmd_status,
         "check": cmd_check, "bump": cmd_bump, "stamp": cmd_stamp,

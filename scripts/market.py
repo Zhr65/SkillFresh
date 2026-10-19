@@ -68,13 +68,59 @@ def score(entry):
 
 
 def search_dsh(term, limit=8, scan=300):
-    """搜 DSH 插件目录。返回 (meta, hits)。"""
-    data = _fetch(DSH_MARKET + "?limit=%d" % scan)
-    items = data.get("plugins") or []
-    meta = {"total": data.get("total"), "generatedAt": data.get("generatedAt"),
-            "source": data.get("source"), "scanned": len(items)}
+    """搜 DSH 插件目录。返回 (meta, hits)。
+
+    审查 P1 修正：原来只拉前 200/300 条（市场共 13810），被审计插件
+    多半不在前 200，find_alternatives 的"同类"判定基于 0.7% 样本。
+    现在优先用服务端 q= 定向搜索（实测支持），miss 时分页兜底扫全量。
+    """
     t = (term or "").lower().strip()
     if not t:
+        data = _fetch(DSH_MARKET + "?limit=%d" % scan)
+        return {"total": data.get("total"), "generatedAt": data.get("generatedAt"),
+                "source": data.get("source"), "scanned": len(data.get("plugins") or [])}, []
+
+    items = []
+    scanned = 0
+    server_err = None
+    # ① 服务端定向搜索（快、全）
+    try:
+        data = _fetch(DSH_MARKET + "?q=%s&limit=%d" % (urllib.parse.quote(t), 100))
+        items = data.get("plugins") or []
+        scanned = len(items)
+    except Exception as e:
+        # 诚实边界：服务端搜索失败必须保留错误信息，不能吞掉假装"没结果"
+        server_err = str(e)[:80]
+    # ② 服务端没给的，本地分页兜底（最多 5 页 × 200 = 1000 条，够覆盖头部）
+    if len(items) < limit:
+        seen = {p.get("name") for p in items}
+        for page in range(1, 6):
+            try:
+                data = _fetch(DSH_MARKET + "?limit=200&page=%d" % page)
+            except Exception:
+                break
+            batch = data.get("plugins") or []
+            if not batch:
+                break
+            scanned += len(batch)
+            for p in batch:
+                n = p.get("name")
+                if n not in seen and (t in (n or "").lower()
+                                      or t in _text(p.get("description")).lower()
+                                      or t in (p.get("category") or "").lower()):
+                    items.append(p)
+                    seen.add(n)
+            if len(items) >= limit * 3:
+                break
+    meta = {"total": data.get("total") if 'data' in dir() else None,
+            "generatedAt": (data.get("generatedAt") if 'data' in dir() else None),
+            "source": data.get("source") if 'data' in dir() else None,
+            "scanned": scanned,
+            "server_error": server_err}
+    # 全部通道失败（服务端 + 分页兜底都没拿到）→ 必须如实报，不假装"没结果"
+    if not items and server_err and scanned == 0:
+        return meta, []
+    if not items:
         return meta, []
     hits = [p for p in items
             if t in (p.get("name") or "").lower()
@@ -102,6 +148,11 @@ def render_dsh(term, limit=6, out=print):
     out("  DSH 插件市场：目录 %s 条，已扫 %s 条，数据生成于 %s%s"
         % (meta.get("total"), meta.get("scanned"),
            (meta.get("generatedAt") or "")[:19], stale))
+    # 诚实边界：服务端搜索失败要如实说（审查教训：吞掉错误假装"没结果"是假绿灯）
+    if meta.get("server_error") and not meta.get("scanned"):
+        out("  [err] DSH 市场不可达：%s" % meta["server_error"])
+        out("        （本机需要代理才能访问部分外网；失败时如实报，不编造候选）")
+        return 0
     if not hits:
         out("  没有命中（换更短的关键词，或试 SkillHub）")
         return 0
