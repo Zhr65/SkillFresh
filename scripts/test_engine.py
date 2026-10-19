@@ -757,11 +757,13 @@ class BlockedByEnvTests(unittest.TestCase):
             "p", {"results": [{"skill": "p", "passed": False}]}))
 
     def test_passed_rows_ignored(self):
+        # 关键回归：有通过行 = 部分可用，绝不能判 blocked（曾把 2/3 误标成 blocked）
         bl = {"results": [
             {"skill": "p", "passed": False, "attribution": "environment: x"},
             {"skill": "p", "passed": True},
         ]}
-        self.assertTrue(console.all_failed_by_env("p", bl))
+        self.assertFalse(console.all_failed_by_env("p", bl),
+                         "有通过行说明它部分能用，不是跑不起来")
 
     def test_attribution_propagates_from_recorded_underscore(self):
         """recorded 顶层 _attribution 要传播到每行，scan 才能判 blocked。"""

@@ -669,15 +669,19 @@ def all_failed_by_env(skill, baseline):
     """该资产在当前模型下的判定是否**全部失败且归因环境**。
 
     用途：把"跑不起来"（环境缺件）与"能力退化"（模型换代）分开。
-    判据保守：必须有 attribution 且以 environment/env/network 开头，
-    或者 recorded 里写了 _attribution 且含 environment —— 含糊不清就当降级处理，
-    宁可误判成"该重写"，也别把真实退化说成"环境问题"。
+    判据必须同时满足：
+      ① 该资产**没有任何**通过行（有通过 = 它至少部分能用，不算 blocked）
+      ② 每条失败行都有 attribution，且归因含 environment/daemon/extension 等关键词
+    含糊不清就当 degraded 处理 —— 宁可让人多看一眼，也别把真退化洗成环境问题。
     """
-    rows = [r for r in (baseline.get("results") or [])
-            if r.get("skill") == skill and r.get("passed") is False]
+    rows = [r for r in (baseline.get("results") or []) if r.get("skill") == skill]
     if not rows:
         return False
-    marks = [str(r.get("attribution") or "").lower() for r in rows]
+    failed = [r for r in rows if r.get("passed") is False]
+    if len(failed) != len(rows):
+        # 有通过行：说明它部分工作，不是"跑不起来"
+        return False
+    marks = [str(r.get("attribution") or "").lower() for r in failed]
     if not any(m for m in marks):
         return False
     env = ("environment", "env:", "network", "unavailable", "not installed",
