@@ -1198,5 +1198,73 @@ class AlternativeTests(unittest.TestCase):
         self.assertEqual(self.audit.find_alternatives("x", {}, "1.0"), [])
 
 
+class CanJudgeTests(unittest.TestCase):
+    """能力管家核心：五类真实任务必须判对（这是 Agent 是否敢用的前提）。"""
+
+    def setUp(self):
+        self.reg = {"assets": {
+            "humanizer": {"status": "watch", "version": "2.1.1"},
+            "github": {"status": "degraded", "version": "1.0.0"},
+            "browser-use": {"status": "blocked", "version": "2.0.0"},
+            "office-pptx": {"status": "strong", "version": "1.0.0"},
+        }}
+
+    def test_has_capability(self):
+        v, hits, _ = console.can_judge("帮我把这段文字去一下AI味", self.reg)
+        self.assertEqual(v, "ok")
+        self.assertIn("humanizer", [h[0] for h in hits])
+
+    def test_missing_recommends_product_category_first(self):
+        """「把财报做成 PPT」主任务是做 PPT，不该首推财报分析。"""
+        reg_no_pptx = {"assets": {
+            "humanizer": {"status": "watch", "version": "2.1.1"},
+        }}
+        v, _hits, cats = console.can_judge("帮我把这份财报做成 PPT", reg_no_pptx)
+        self.assertEqual(v, "missing")
+        self.assertEqual(cats[0][1]["slug"], "pptx",
+                         "产物类目必须排在主题类目前面")
+
+    def test_has_pptx_when_installed(self):
+        """装了 pptx 能力时，做 PPT 应该判 ok。"""
+        v, hits, _ = console.can_judge("帮我把这份财报做成 PPT", self.reg)
+        self.assertEqual(v, "ok")
+        self.assertIn("office-pptx", [h[0] for h in hits])
+
+    def test_degraded_detected(self):
+        v, hits, _ = console.can_judge("去 GitHub 上查一下这个项目", self.reg)
+        self.assertEqual(v, "degraded", "有资产但状态 degraded 时必须说'有问题'而非'能做'")
+
+    def test_blocked_is_degraded_not_ok(self):
+        v, _h, _ = console.can_judge("用浏览器打开网站", self.reg)
+        self.assertEqual(v, "degraded")
+
+    def test_unrelated_task_is_missing_without_fake_category(self):
+        v, _h, cats = console.can_judge("帮我规划一次月球基地选址", self.reg)
+        self.assertEqual(v, "missing")
+        self.assertEqual(cats, [], "不要硬凑类目")
+
+    def test_cli_exit_codes(self):
+        """退出码可被脚本/Agent 用来分支：0 能做 / 2 有问题 / 3 缺。"""
+        tmp = mkdtemp()
+        try:
+            console.configure_data_dir(tmp)
+            write_json(os.path.join(tmp, "registry.generic.json"), {
+                "schema_version": 1, "host": "generic", "root": tmp,
+                "active_model": "v1", "count": 1,
+                "assets": {"humanizer": {"status": "watch", "version": "2.1.1",
+                                         "baseline_n": 5, "baseline_pass": 5,
+                                         "baseline_rate": 1.0}},
+            })
+            p = run_console("--host", "generic", "--out", tmp, "can",
+                            "帮我把这段文字去一下AI味")
+            self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+            p2 = run_console("--host", "generic", "--out", tmp, "can",
+                             "帮我做一份月球基地选址报告")
+            self.assertEqual(p2.returncode, 3, p2.stdout + p2.stderr)
+        finally:
+            console.configure_data_dir(ROOT)
+            shutil.rmtree(tmp, ignore_errors=True)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

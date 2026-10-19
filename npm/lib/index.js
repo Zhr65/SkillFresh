@@ -94,29 +94,47 @@ const ROOT_PARAM = {
 
 const TOOLS = [
   tool(
+    'skill_audit_can',
+    '【动手前先调这个】判断「这件事我能不能做」：用户提出一个具体任务（做 PPT / 查 GitHub / 处理表格 / 自动化浏览器 / 去 AI 味 / 设计界面…）时，先用任务描述调它，确认有没有已装资产能覆盖、以及它们现在是否可用。返回三种结论并给出该怎么做：① 能做 → 直接干活，不要向用户汇报「我查过了」；② 有但坏了 → 先告诉用户是什么问题，别假装能做；③ 缺能力 → 一句话推荐（含安装量/值不值得装）或直接用内置能力做初版，**不要直接说做不了**。只读、不装不删。',
+    {
+      task: { type: 'string', description: '任务的自然语言描述，如「把这份财报做成 PPT」「去 GitHub 查项目」' },
+      market: { type: 'string', description: '填 "1" 表示本地没有时去市场搜候选（需网络，慢一点）' },
+      host: HOST_PARAM,
+      root: ROOT_PARAM,
+    },
+    ['task'],
+    async (args) => {
+      const task = String((args && args.task) || '').trim()
+      if (!task) return '缺少 task 参数：把用户的任务用一句话描述传进来。'
+      const extra = [task]
+      if (String(args && args.market) === '1') extra.push('--market')
+      return runWithAutoScan('can', args, extra, { timeout: 120000 })
+    },
+  ),
+  tool(
     'skill_audit_status',
-    '能力折旧表：列出该宿主下每个已装 skill/插件的能力指纹、基线通过率、维护面 risk、是否有 golden set，以及判定（strong / watch / unverified / degraded）。只读，不改任何文件。想知道「我装的东西哪些在退化」时先调这个。',
+    '【诊断用】列出每个已装资产的能力指纹、基线通过率、K、risk、是否有 golden set，以及状态（strong/watch/unverified/degraded/blocked）。用户问「我装的东西哪些在退化/哪些没测过」时用。日常任务开始前应该用 skill_audit_can，不是这个。',
     { host: HOST_PARAM, root: ROOT_PARAM },
     [],
     async (args) => runWithAutoScan('status', args, [], { timeout: 180000 }),
   ),
   tool(
     'skill_audit_recommend',
-    '推荐/淘汰面板：把资产分成「强（保留/推荐）」「观察」「未验证」「已降级·淘汰候选」「可选精简」五档，并给出可执行的建议新增项。淘汰与安装都只是**建议**，绝不自动执行。',
+    '【诊断用】推荐/淘汰面板：强/观察/未验证/跑不起来·环境问题/已降级/可选精简 六档 + 建议新增。用户明确问「哪个该删/该留」时用。淘汰只是建议，绝不自动执行。',
     { host: HOST_PARAM, root: ROOT_PARAM },
     [],
     async (args) => runWithAutoScan('recommend', args, [], { timeout: 180000 }),
   ),
   tool(
     'skill_audit_check',
-    '检查当前模型版本是否已变更（相对上次回归基线）。变更时会给出「用新模型重跑 golden set → report → scan」的三步操作，并说明为什么不能直接判定为退化。只读。',
+    '【模型换代后调】检查当前模型相对上次回归基线是否变了。变了会给出重跑步骤；模型戳没设置时返回「没法判断」而不是「无需重跑」。',
     { host: HOST_PARAM, root: ROOT_PARAM },
     [],
     async (args) => runWithAutoScan('check', args, [], { timeout: 60000 }),
   ),
   tool(
     'skill_audit_scan',
-    '重新发现该宿主下的资产并写入 registry.<host>.json（新增/删除了 skill 或插件之后跑）。会记录每个资产的能力指纹，指纹变化会被标注为「已改动」而不是「模型退化」。',
+    '【装了/删了东西之后调】重新发现资产并写 registry.<host>.json。记录能力指纹；指纹变化标注为「已改动」而非「模型退化」。',
     { host: HOST_PARAM, root: ROOT_PARAM },
     [],
     async (args) => {
@@ -127,7 +145,7 @@ const TOOLS = [
   ),
   tool(
     'skill_audit_probe',
-    '运行时证据：读宿主自己打的日志，找出「文件齐全、manifest 正确、但跑起来报错」的插件（例如依赖的 CLI 缺失、路由起不来）。只读，不启动宿主。静态扫描看不见这类问题——能力面是「声明的」，日志是「实际发生的」。有盲区：插件不写日志就看不见。',
+    '【排查「装了但不工作」时调】读宿主日志，找出「文件齐全、manifest 正确、但跑起来报错」的插件（依赖 CLI 缺失、路由起不来等）。只读。盲区：插件不写日志就看不见。',
     { host: HOST_PARAM },
     [],
     async (args) => {

@@ -1,7 +1,7 @@
 ---
 name: skill-auditor
 description: "Use when evaluating a skill OR plugin's lifecycle across agents: detecting capability degradation after a model update, judging whether a new skill/plugin is effective and fits the user, or auditing whether to keep/rewrite/retire one. Works in WorkBuddy (skills), DeepSeek harness (plugins), and other hosts via adapters. Triggers: '评测这个 skill', '评测这个插件', '模型升级后 skill 还灵不灵', '新 skill 好不好用', '这个 skill 适合我吗', 'deepseek 插件好不好用', '跨 agent 评估能力', '做个 skill 并按评测流程走'."
-version: 0.6.5
+version: 0.7.0
 allowed-tools:
   - Read
   - Write
@@ -55,6 +55,32 @@ One core engine, per-host adapters. The same fingerprint / baseline / regression
 So in WorkBuddy you evaluate **skills**; in DeepSeek harness you evaluate **plugins** — same commands, different adapter. Adding a new host is a `hosts.json` entry (kind + root + manifest filenames), no code change.
 
 ## When to Use
+
+**Read this first — it decides whether the tool ever gets used.**
+
+### 铁律：涉及具体任务时，先查能力再回答
+
+**触发条件（任一即可）**：
+- 用户提出一个可执行的任务（做 PPT / 查资料 / 写文档 / 处理表格 / 自动化操作 / 改文案）
+- 用户问「你能不能做 X」
+- 用户抱怨某个工具/技能不好用（差点意思、不太行）
+
+**动作（不许跳步）**：
+1. 调 `can "<任务描述>"`（DSH 里是 `skill_audit_can`）
+2. 严格按返回结果行动：
+   - **✅ 能做** → 直接干活。**不要**向用户汇报「我查过了」，也不要念工具输出
+   - **⚠️ 有但坏了** → 先说清楚是什么问题（跑不起来 / 通过率低），再问要不要继续
+   - **❌ 缺能力** → 一句话推荐（含安装量/值不值得装），等用户确认；或用内置能力做初版
+3. 只在**用户明确要求评测/诊断**时，才用 `status` / `recommend` / `audit`
+
+**禁令（违反即算没做完）**：
+- ❌ 不查就答「我做不了」
+- ❌ 查了然后不按结论行动（查完说「缺能力」，却不给推荐）
+- ❌ 把 `can` 的原始输出整段甩给用户（用户要的是结论，不是表格）
+
+**为什么这条是铁律**：Agent 不知道自己装了什么、装的东西现在好不好。不查就答，等于凭印象赌。
+
+### 除铁律外，这些场景也用
 
 - Before deploying a new skill or plugin ("做个 skill，按评测流程走").
 - After a model-version bump, to check whether existing skills regressed.

@@ -1534,6 +1534,133 @@ def cmd_report(args):
     return rc
 
 
+# ---------------------------------------------------------------- can（能力判断）
+# 「能力管家」的核心：用户提出一个任务，Agent 先判断「我有没有能力做、装了的东西好不好」。
+# 设计原则：
+#   · 本地优先（<100ms）：先只查 registry，不联网
+#   · 市场推断是可选的（--market），慢但只在「本地没有」时有意义
+#   · 输出必须能直接决定下一步动作（可以/坏了/缺），而不是一堆数据让 Agent 自己读
+CAN_VERDICT_OK = "ok"          # 有且健康
+CAN_VERDICT_DEGRADED = "degraded"  # 有但坏了
+CAN_VERDICT_MISSING = "missing"    # 没有
+
+
+def can_judge(task, reg):
+    """任务 → (verdict, 命中的资产列表, 命中的类目)。
+
+    verdict：
+      ok       → 有已装资产能覆盖，且没有明显故障
+      degraded → 有，但状态是 blocked/degraded（跑不起来或通过率低）
+      missing  → 没有覆盖
+    """
+    assets = reg_assets(reg or {})
+    task_l = (task or "").lower()
+    hits = []
+    seen = set()
+
+    # ① 资产名/片段直接出现在任务里
+    noise = {"skill", "plugin", "tool", "tools", "agent", "agents", "dsh"}
+    for name, s in assets.items():
+        if s.get("eliminated"):
+            continue
+        segs = [p for p in re.split(r"[-_/@.]+", name.lower())
+                if len(p) >= 4 and p not in noise]
+        if name.lower() in task_l or any(p in task_l for p in segs):
+            hits.append((name, s, "名称命中"))
+            seen.add(name)
+
+    # ② 类目命中（「做 PPT」→ pptx 类）
+    cats = need_categories(task_l)
+    # 产物类目优先：「把财报做成 PPT」的主任务是「做 PPT」，财报只是输入。
+    # 否则用户会被推荐去做财报分析的工具，却没得到做 PPT 的。
+    PRODUCT_CATS = {"pptx", "docx", "sheet", "chart", "ui-design", "frontend"}
+    if cats:
+        cats = sorted(cats, key=lambda x: (0 if x[1]["slug"] in PRODUCT_CATS else 1,
+                                           -x[0]))
+    slug_of = {t["slug"]: t for t in TAXONOMY}
+    for _n, t, _k in cats:
+        # 先找名字含 slug/别名 的资产
+        alias = [a for a in (t.get("related") or []) if len(a) >= 3] + [t["slug"]]
+        for name, s in assets.items():
+            if s.get("eliminated") or name in seen:
+                continue
+            low = name.lower()
+            if any(a in low for a in alias):
+                hits.append((name, s, "类目:%s" % t["slug"]))
+                seen.add(name)
+
+    if not hits:
+        return CAN_VERDICT_MISSING, [], cats
+
+    # 判定健康度：任一命中资产状态不对 → degraded（用户视角：能做的事有短板）
+    bad = [h for h in hits if (h[1].get("status") in ("blocked", "degraded"))]
+    if bad:
+        return CAN_VERDICT_DEGRADED, hits, cats
+    return CAN_VERDICT_OK, hits, cats
+
+
+def cmd_can(args):
+    """能力判断：这件事我能不能做？—— Agent 在动手前调用。"""
+    host, prof = resolve_host(args)
+    task = args.task
+    reg = load_registry(host)
+    if not reg:
+        print("[err] 还没有 registry.%s.json —— 先 scan" % host)
+        return 1
+
+    verdict, hits, cats = can_judge(task, reg)
+    label = prof["label"]
+    print(f"\n任务：{task}\n宿主：{host}（{label}）\n")
+
+    if verdict == CAN_VERDICT_OK:
+        print(f"{OK_MARK} 能做。用这些已经装好的{label}：")
+        for name, s, why in hits[:5]:
+            ver = s.get("version") or "?"
+            st = s.get("status")
+            print(f"   → {name}  ({why}，v{ver}，状态 {st})")
+        print("\n行动建议：直接做，不要向用户汇报「我查过了」。")
+        return 0
+
+    if verdict == CAN_VERDICT_DEGRADED:
+        print(f"{WARN_MARK} 相关能力**有，但现在有问题**：")
+        for name, s, why in hits[:5]:
+            st = s.get("status")
+            note = ""
+            others = s.get("baseline_other_models") or {}
+            if st == "blocked":
+                note = "（跑不起来：环境/依赖问题，不是该删）"
+            elif st == "degraded":
+                note = "（通过率低）"
+            print(f"   → {name}  状态 {st}{note}")
+        print("\n行动建议：先告诉用户「能做但有问题」，说明是什么问题；")
+        print("          修不好再用内置能力顶上，别直接说做不了。")
+        return 2
+
+    # missing
+    print(f"{BULB} 没有已装的{label}覆盖这个任务。")
+    if cats:
+        print("\n最接近的类目：")
+        for _n, t, kws in cats[:3]:
+            print(f"   [install:{t['slug']}] {t['title']}")
+            print(f"      命中词：{', '.join(kws[:5])}")
+            print(f"      值不值得装：{t.get('worth', '—')}")
+        print("\n行动建议：先问用户「要不要我找一个」，或直接用内置能力做初版。")
+        print("          **不要**直接说「我做不了」。")
+        if getattr(args, "market", False):
+            try:
+                import market as _m
+                print("\n" + "-" * 60)
+                print("市场候选（--market）：")
+                _m.render_dsh(cats[0][1]["query"].split()[0], 3)
+                _m.render_skillhub(cats[0][1]["query"], 3)
+            except Exception as e:
+                print(f"[warn] 市场查询失败：{e}")
+    else:
+        print("   也没匹配到已知类目（TAXONOMY 只覆盖 11 类）。")
+        print("   行动建议：直接用内置能力试做；确实做不了再如实说明。")
+    return 3
+
+
 def match_existing(need, reg):
     """需求 → 已装资产。名称全串 + 名称片段（去噪）两级匹配。
 
@@ -2076,6 +2203,10 @@ def build_parser():
                     help="把本次结果合并进基线（否则报告只是报告，面板看不到）")
     rp.add_argument("--replace", action="store_true",
                     help="与 --promote 连用：整体替换基线，而不是按资产合并")
+    cn = sub.add_parser("can", help="能力判断：这件事我能不能做（Agent 动手前调用）")
+    cn.add_argument("task", help="任务描述，如「做一份季度财报 PPT」")
+    cn.add_argument("--market", action="store_true",
+                    help="本地没有时，去市场搜候选（需网络）")
     sg = sub.add_parser("suggest")
     sg.add_argument("--need", required=True)
     sg.add_argument("--search", action="store_true",
@@ -2107,6 +2238,7 @@ def main():
         "probe": cmd_probe,
         "audit": cmd_audit,
         "report": cmd_report, "suggest": cmd_suggest,
+        "can": cmd_can,
         "discover": cmd_discover, "bootstrap": cmd_bootstrap, "onboard": cmd_onboard,
     }
     if cmd not in table:
