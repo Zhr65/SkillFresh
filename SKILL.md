@@ -204,11 +204,15 @@ When the user asks to create a skill, run the protocol inline **before** deliver
 
 This is the "empty shelf" behavior: a user (especially one with zero skills/plugins) asks for something no installed skill covers. Don't just say "I can't" — surface the gap and offer to fill it.
 
+**"Marginally adequate" is more common than "missing".** When the user complains (差点意思 / 不太行 / 凑合 / 改了几次), that is a dissatisfaction signal, not a request for a new asset. `suggest` detects it, maps the need to the *installed* asset via category aliases, and reports that asset's real state. A 100% baseline at K=1 means "it runs" — it does **not** mean the output is good enough. Say that out loud instead of recommending an install.
+
 1. **Detect the need** from the conversation: task type + domain (e.g. "quarterly financial report" → finance/analysis; "remove the AI tone" → humanizer; "build a dashboard" → frontend/chart).
 2. **Check the registry first** — `python scripts/console.py suggest --need "<need>"`. It returns either:
    - `✓ 你已有可用的 skill/插件：<name>` → use it, don't install anything; or
    - `💡 建议新增：[install:<slug>] <title>` → no cover, recommend the category.
-3. **If uncovered, search the marketplace** for real candidates (skills/plugins/experts) and present a card with evidence: what it does, why it fits this need, source. **Never auto-install** — the user picks. Each recommendation carries **where to search** and **whether it is worth installing** (one-off task → built-in capability; repeated work → install). A request spanning several categories ("design an app UI and ship it as a web page") reports every matched gap, ranked by keyword hits.
+3. **If uncovered, search the marketplace** for real candidates (skills/plugins/experts) and present a card with evidence: what it does, why it fits this need, source. **Never auto-install** — the user picks. Each recommendation carries **where to search** and **whether it is worth installing** (one-off task → built-in capability; repeated work → install). A request spanning several categories ("design an app UI and ship it as a web page") reports every matched gap, ranked by keyword hits. `suggest --search` / `scripts/market.py` queries the two reachable markets directly (DSH catalog + SkillHub) — **no GitHub proxy needed**.
+
+   **Star numbers lie here.** In the DSH catalog, `stars` belongs to the *upstream repository*, not the plugin (measured: one plugin shows 101,755 stars while having 73 installs). Rank by installs + recent growth + last commit, never by stars, and label the star column so the user is not misled.
 4. **On install, register it** (`console.py scan`) so it enters monitoring with a fingerprint + baseline slot.
 
 Boundary: recommend at the moment of need, not as a standing排行榜. One suggestion tied to the current task beats a list of 50 skills. If the need is one-off, prefer built-in capability over installing.

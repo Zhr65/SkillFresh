@@ -24,7 +24,8 @@ OUT = os.path.join(DIST_ROOT, "skill-auditor")
 # 从市场 zip 装的人要能跑。它只写自己的沙盒目录，不碰用户数据。
 SHIP_FILES = ["SKILL.md", "USAGE.md", "DISTRIBUTION.md", "README.md", "LICENSE",
               ".gitignore", "hosts.example.json", "_meta.json", "demo.py"]
-SHIP_SCRIPTS = ["console.py", "fingerprint.py", "regress.py", "baseline.py", "install.py", "build_dist.py"]
+SHIP_SCRIPTS = ["console.py", "market.py", "fingerprint.py", "regress.py",
+               "baseline.py", "install.py", "build_dist.py"]
 GOLDEN_SHIP = ["README.md", "_template.json"]
 # seed/ 是社区公共 golden，陌生人装上就有判定可跑；contrib/ 是未评审的贡献片段，不入包
 SEED_SHIP = ["README.md", "index.json"]
@@ -70,6 +71,13 @@ def main():
             p = os.path.join(src_seed, entry)
             if os.path.isfile(p) and entry.endswith(".json"):
                 shutil.copy2(p, os.path.join(seeded, entry))
+            elif os.path.isdir(p) and entry == "templates":
+                # 插件判据模板：用户给新插件建 golden 时复用，必须随包
+                dst_t = os.path.join(seeded, "templates")
+                os.makedirs(dst_t, exist_ok=True)
+                for tf in sorted(os.listdir(p)):
+                    if tf.endswith(".json"):
+                        shutil.copy2(os.path.join(p, tf), os.path.join(dst_t, tf))
 
     zpath = os.path.join(DIST_ROOT, "skill-auditor.zip")
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:

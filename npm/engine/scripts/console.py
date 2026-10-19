@@ -195,6 +195,7 @@ TAXONOMY = [
     {"slug": "ui-design", "title": "UI / 界面 / 视觉设计",
      "kw": ["设计", "界面", "app", "应用界面", "移动端", "小程序", "原型", "ui", "ux",
             "视觉", "配色", "布局", "交互稿", "线框图", "mockup", "设计稿", "皮肤"],
+     "related": ["frontend", "design", "ui", "ux", "canvas", "chart"],
      "query": "UI 设计 app 界面 mockup",
      "where": "SkillHub（office/frontend 类）+ GitHub",
      "worth": "一次性原型用内置能力做；要反复产出设计稿才值得装"},
@@ -1419,37 +1420,167 @@ def need_categories(need_l):
     return scored
 
 
+# ---------------------------------------------------------------- dissatisfaction
+# 「勉强够用」是比「没有」更常见的真实状态：用户装了东西，但效果不满意。
+# 这类信号必须能被识别出来，否则工具只会推荐"你缺什么类目"，永远看不到"你有但不好用"。
+DISSATISFIED_MARKERS = {
+    "strong": [  # 明确不满
+        "差点意思", "不太行", "很一般", "一般般", "不够好", "不满意", "不好用",
+        "还不如自己写", "还是我来吧", "算了", "效果不好", "没什么用", "很鸡肋",
+        "感觉不对", "不够专业", "太粗糙", "很丑", "不好看",
+    ],
+    "weak": [    # 勉强 / 返工信号
+        "凑合", "勉强", "有点怪", "说不上来", "总觉得", "不够", "差一点",
+        "再来一次", "重做", "又错了", "还是不对", "改了几次",
+    ],
+}
+
+
+def detect_dissatisfaction(text):
+    """从一句话里认出"不满意"。返回 (level, matched_terms)。
+
+    level: strong / weak / None。刻意只做关键词匹配 —— 判语义要模型，
+    而这一步的职责是"把用户已经在抱怨这件事标记出来"，宁可不灵敏也别误报。
+    """
+    t = (text or "").lower()
+    for level in ("strong", "weak"):
+        terms = [m for m in DISSATISFIED_MARKERS[level] if m in t]
+        if terms:
+            return level, terms
+    return None, []
+
+
+def diagnose_owned(need, reg):
+    """不满时：找出"相关的已装资产"及其真实状态，而不是直接推荐新货。
+
+    匹配分三层，逐层放宽（宁可多列几个让用户认，也不要漏掉真正相关的）：
+      ① 名称/片段直接出现在需求里
+      ② 需求命中的类目 slug 与资产名相关（"UI 差点意思" → frontend-dev）
+      ③ 资产的 description 里出现需求关键词（最后的兜底）
+    """
+    assets = reg_assets(reg)
+    need_l = (need or "").lower()
+    related, seen = [], set()
+
+    def add(name, s, why):
+        if name in seen or s.get("eliminated"):
+            return
+        seen.add(name)
+        related.append((name, s, why))
+
+    # ① 名称命中
+    for name, s in assets.items():
+        segs = [p for p in re.split(r"[-_/@.]+", name.lower()) if len(p) >= 4]
+        if name.lower() in need_l or any(p in need_l for p in segs):
+            add(name, s, "名称命中")
+
+    # ② 类目 → 资产：slug 本身、slug 的成分、以及类目的 related 别名
+    for _n, t, _k in need_categories(need_l):
+        slug = t["slug"]
+        alias = [a for a in (t.get("related") or []) if len(a) >= 3]
+        parts = [p for p in re.split(r"[-_]", slug) if len(p) >= 3] + alias
+        for name, s in assets.items():
+            low = name.lower()
+            if slug in low or any(p in low for p in parts):
+                add(name, s, "类目:%s" % slug)
+
+    # ③ description 兜底：需求里的实词出现在资产描述里
+    words = [w for w in re.split(r"[\s,，。、]+", need_l) if len(w) >= 2]
+    for name, s in assets.items():
+        desc = (s.get("description") or "").lower()
+        if desc and any(w in desc for w in words if len(w) >= 3):
+            add(name, s, "描述相近")
+    return related
+
+
+def print_owned_verdict(name, s):
+    """把"已装资产到底行不行"翻译成人话（含 K 与归因）。"""
+    n = s.get("baseline_n") or 0
+    if not n:
+        print(f"      → {name}：**没有基线**，所以「感觉不行」但你无从判断是它不行还是用法不对")
+        print("        建议先给它跑一轮基线（seed 里可能有现成用例）")
+        return
+    rate = s.get("baseline_rate") or 0
+    k = s.get("baseline_min_k")
+    status = s.get("status")
+    print(f"      → {name}：基线 {s.get('baseline_pass')}/{n}（{rate*100:.0f}%）"
+          f"{'，K=%s' % k if k else ''}，状态 {status}")
+    if rate == 1.0 and (k or 1) <= 1:
+        print("        ⚠️ 100% 但是 K=1 自评 —— 说明「能跑通」，不等于「效果让你满意」")
+        print("          你的「差点意思」很可能是**质量**问题而不是**能不能用**问题，")
+        print("          这类差距基线测不出来，得靠人工判据或换更好的资产")
+    elif rate < 1.0:
+        print("        它确实有失败的用例 → 这是可复现的问题，不是错觉")
+
+
 def cmd_suggest(args):
     host, prof = resolve_host(args)
     need = args.need
     reg = load_registry(host) or {}
     label = prof["label"]
+    level, terms = detect_dissatisfaction(need)
     print(f"\n需求：{need}\n宿主：{host}（{label}）\n")
+
+    if level:
+        print(f"{BULB} 检测到「不满意」信号（{level}）：{', '.join(terms)}")
+        print("   先看已装的东西到底行不行，再谈要不要装新的。\n")
+        owned = diagnose_owned(need, reg)
+        if owned:
+            for name, s, why in owned[:4]:
+                print(f"  · {name}（{why}）")
+                print_owned_verdict(name, s)
+        else:
+            print("   → 没有明显相关的已装资产；可能是这个需求确实没覆盖。")
+
     hits = match_existing(need, reg)
-    if hits:
+    if hits and not level:
         print(f"{OK_MARK} 你已有可用的 {label}：")
         for n, why in hits:
             print(f"   → {n}  ({why})")
         print("\n直接说『用 <名称> 做…』即可，无需安装。")
-        return 0
+        if not getattr(args, "search", False):
+            print("（如果用了还是不满意，加 --search 让我去市场找更好的候选）")
+        else:
+            print()
+    elif hits:
+        print(f"\n{OK_MARK} 相关已装资产：{', '.join(n for n, _ in hits)}")
 
     need_l = need.lower()
     scored = need_categories(need_l)
     if scored:
-        print(f"{BULB} 当前 {host} 没有覆盖这个需求的 {label}。按缺口大小排序：\n")
+        print(f"\n{BULB} 按缺口给方向（{host} / {label}）：\n")
         for i, (_n, t, kws) in enumerate(scored[:3], 1):
             print(f"   {i}. [install:{t['slug']}]  {t['title']}")
             print(f"      命中词：{', '.join(kws[:6])}")
             print(f"      搜索词：{t['query']}")
             print(f"      去哪搜：{t.get('where', '—')}")
             print(f"      值不值得装：{t.get('worth', '—')}")
-        print("\n下一步：我可以按上面的搜索词去搜真实候选、给你带证据的卡片，你确认后才装；")
-        print("        也可以先用内置能力把这件事做掉（一次性需求通常更划算）。")
-        return 0
+    else:
+        print(f"{BULB} 未匹配到现成类别（{label} 侧）。")
+        print("   建议：先用内置能力试做；若这会是高频任务，把需求说得更具体点再问我一次，")
+        print("        我再按 TAXONOMY 重新匹配（当前只覆盖 11 个常见类目，不是万能表）。")
 
-    print(f"{BULB} 未匹配到现成类别（{label} 侧）。")
-    print("   建议：先用内置能力试做；若这会是高频任务，把需求描述得更具体点再问我一次，")
-    print("        我再按 TAXONOMY 重新匹配（当前只覆盖 11 个常见类目，不是万能表）。")
+    # --search：真的去市场拉候选（需要网络；失败会如实报错）
+    if getattr(args, "search", False):
+        try:
+            import market as _market
+        except Exception:
+            _market = None
+        if _market is None:
+            print("\n[err] 找不到 market.py（应和 console.py 同目录）")
+            return 0
+        terms = [t["query"].split()[0] for _n, t, _k in scored[:1]] or [need]
+        print(f"\n{BULB} 去市场搜真实候选（关键词：{terms[0]}）")
+        print("-" * 60)
+        _market.render_dsh(terms[0], 4)
+        print()
+        _market.render_skillhub(terms[0], 4)
+        print("-" * 60)
+        print("装之前三件事：① 它有 demo 能看效果吗 ② 半年内还有提交吗 ③ 许可证允许你用吗")
+        print("装上之后：scan → 建 golden → 跑基线，让数据替你判断，而不是靠 star 数")
+    else:
+        print("\n下一步：我可以按上面的搜索词去市场搜真实候选（加 --search），")
+        print("        或者你先说已装的哪个「差点意思」，我按不满信号帮你定位。")
     return 0
 
 
@@ -1788,6 +1919,8 @@ def build_parser():
                     help="与 --promote 连用：整体替换基线，而不是按资产合并")
     sg = sub.add_parser("suggest")
     sg.add_argument("--need", required=True)
+    sg.add_argument("--search", action="store_true",
+                    help="真去插件市场搜候选（DSH / SkillHub，需网络；失败会如实报错）")
     d = sub.add_parser("discover")
     d.add_argument("--write", action="store_true")
     bs = sub.add_parser("bootstrap")

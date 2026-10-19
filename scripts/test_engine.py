@@ -813,5 +813,90 @@ class PluginTemplateTests(unittest.TestCase):
         self.assertGreaterEqual(checked, 3, "三个已装插件都该有可用 golden")
 
 
+class DissatisfactionTests(unittest.TestCase):
+    """不满侦测：认出「勉强够用」比认出「没有」更重要。"""
+
+    def test_strong_markers(self):
+        for text in ("这个 UI 差点意思", "效果不太行", "感觉很鸡肋", "还不如自己写"):
+            level, terms = console.detect_dissatisfaction(text)
+            self.assertEqual(level, "strong", repr(text))
+            self.assertTrue(terms)
+
+    def test_weak_markers(self):
+        for text in ("凑合能用", "改了几次还是不对", "总觉得哪里怪"):
+            level, _ = console.detect_dissatisfaction(text)
+            self.assertIn(level, ("strong", "weak"), repr(text))
+
+    def test_neutral_not_flagged(self):
+        for text in ("帮我设计一个app的界面", "做一个公司官网", "整理会议记录"):
+            level, terms = console.detect_dissatisfaction(text)
+            self.assertIsNone(level, "%r 不该被判为不满" % text)
+            self.assertEqual(terms, [])
+
+    def test_diagnose_maps_category_to_installed_asset(self):
+        """「UI 差点意思」必须关联到已装的 frontend-dev，而不是说'没装相关资产'。"""
+        reg = {"assets": {"frontend-dev": {"baseline_n": 5, "baseline_pass": 5,
+                                           "baseline_rate": 1.0, "baseline_min_k": 1,
+                                           "status": "watch", "description": "frontend ui"},
+                          "github": {"baseline_n": 3, "baseline_pass": 3,
+                                     "baseline_rate": 1.0, "status": "strong"}}}
+        hits = console.diagnose_owned("我设计 app 的 UI 总是差点意思", reg)
+        names = [h[0] for h in hits]
+        self.assertIn("frontend-dev", names, "类目 ui-design 应关联到 frontend-dev")
+        self.assertNotIn("github", names, "不相关的资产不该被列进来")
+
+    def test_diagnose_marks_reason(self):
+        reg = {"assets": {"frontend-dev": {"description": "x"}}}
+        hits = console.diagnose_owned("UI 设计差", reg)
+        self.assertTrue(hits)
+        self.assertTrue(all(len(h) == 3 for h in hits), "三元组必须带 why")
+
+
+class MarketModuleTests(unittest.TestCase):
+    """市场模块：评分不用 star、失败如实报错（不假装没结果）。"""
+
+    def setUp(self):
+        sys.path.insert(0, SCRIPTS)
+        import market
+        self.market = market
+
+    def test_score_ignores_stars(self):
+        a = {"name": "a", "installCount": 100, "growth7d": 50,
+             "pushedAt": "2026-10-18T00:00:00Z", "stars": 999999}
+        b = {"name": "b", "installCount": 100, "growth7d": 50,
+             "pushedAt": "2026-10-18T00:00:00Z", "stars": 0}
+        self.assertEqual(self.market.score(a), self.market.score(b),
+                         "star 不能影响排序（实测 star 是上游仓库的）")
+
+    def test_score_prefers_installs(self):
+        lo = {"installCount": 1, "growth7d": 0, "pushedAt": "2026-10-18T00:00:00Z"}
+        hi = {"installCount": 400, "growth7d": 0, "pushedAt": "2026-10-18T00:00:00Z"}
+        self.assertGreater(self.market.score(hi), self.market.score(lo))
+
+    def test_network_failure_reported_honestly(self):
+        """不可达时必须报错，不能返回空列表让人以为'没有结果'。"""
+        out = []
+        orig = self.market._fetch
+        try:
+            def boom(url):
+                raise OSError("simulated unreachable")
+            self.market._fetch = boom
+            n = self.market.render_dsh("ui", 3, out=out.append)
+            text = "\n".join(out)
+            self.assertEqual(n, 0)
+            self.assertIn("不可达", text)
+            self.assertIn("不编造候选", text)
+        finally:
+            self.market._fetch = orig
+
+    def test_timeout_is_finite(self):
+        self.assertLessEqual(self.market.TIMEOUT, 30)
+
+    def test_how_to_read_warns_about_stars(self):
+        text = "\n".join(self.market.HOW_TO_READ)
+        self.assertIn("star", text)
+        self.assertIn("不是插件热度", text)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
