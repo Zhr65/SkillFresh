@@ -94,6 +94,21 @@ const ROOT_PARAM = {
 
 const TOOLS = [
   tool(
+    'skill_audit_find',
+    '【用户忘了插件名时调】按功能找已装的 skill/插件并返回「该调哪个工具」。用户说「我记得有个能查余额的」「那个记忆插件叫啥」「有没有能操作网页的」——提到某个功能但没说名字——就用功能描述调它。返回：资产名 + 它注册的工具名（如 hindsight_capture_initiative）+ 怎么调用。拿到工具名后**直接调用该工具**，不要只把名字念给用户。纯 UI 插件会标明「无工具，让用户在界面里用」。只读。',
+    {
+      query: { type: 'string', description: '功能描述，如「查余额」「记忆」「打开网页」「画图表」' },
+      host: HOST_PARAM,
+      root: ROOT_PARAM,
+    },
+    ['query'],
+    async (args) => {
+      const q = String((args && args.query) || '').trim()
+      if (!q) return '缺少 query 参数：把用户提到的功能用一句话描述传进来。'
+      return runWithAutoScan('find', args, [q], { timeout: 120000 })
+    },
+  ),
+  tool(
     'skill_audit_can',
     '【动手前先调这个】判断「这件事我能不能做」：用户提出一个具体任务（做 PPT / 查 GitHub / 处理表格 / 自动化浏览器 / 去 AI 味 / 设计界面…）时，先用任务描述调它，确认有没有已装资产能覆盖、以及它们现在是否可用。返回三种结论并给出该怎么做：① 能做 → 直接干活，不要向用户汇报「我查过了」；② 有但坏了 → 先告诉用户是什么问题，别假装能做；③ 缺能力 → 一句话推荐（含安装量/值不值得装）或直接用内置能力做初版，**不要直接说做不了**。只读、不装不删。',
     {

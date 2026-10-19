@@ -1266,5 +1266,62 @@ class CanJudgeTests(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+class FindRouteTests(unittest.TestCase):
+    """能力路由：说功能 → 返回工具名。这是「不用记插件名就能用」的核心。"""
+
+    def setUp(self):
+        sys.path.insert(0, SCRIPTS)
+        import tools_scan
+        self.ts = tools_scan
+        self.tmp = mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_scan_finds_prefixed_tools(self):
+        """tools.register 里 name 是变量时，靠 <前缀>_<动作> 字面量反推。"""
+        d = os.path.join(self.tmp, "mytool-plug", "lib")
+        os.makedirs(d)
+        with open(os.path.join(d, "index.js"), "w", encoding="utf-8") as fh:
+            fh.write(
+                'tools.register({ name: spec.name, description: spec.description });\n'
+                'var A = "mytool_page"; var B = "mytool_session";\n'
+            )
+        tools, _ = self.ts.scan_tools(os.path.dirname(d))
+        self.assertIn("mytool_page", tools)
+        self.assertIn("mytool_session", tools)
+
+    def test_scan_rejects_noise(self):
+        """zod 的 invalid_* / 状态类标识不能混进来（实测踩坑）。"""
+        d = os.path.join(self.tmp, "mytool-plug", "lib")
+        os.makedirs(d)
+        with open(os.path.join(d, "index.js"), "w", encoding="utf-8") as fh:
+            fh.write('var A = "mytool_page"; var B = "mytool_session";\n'
+                     'var C = "invalid_string"; var D = "invalid_type";\n')
+        tools, _ = self.ts.scan_tools(os.path.dirname(d))
+        self.assertNotIn("invalid_string", tools, "zod 错误码不是工具")
+        self.assertNotIn("invalid_type", tools)
+        self.assertIn("mytool_page", tools)
+        self.assertIn("mytool_session", tools)
+
+    def test_ui_plugin_returns_empty(self):
+        """纯 UI 插件没有工具 —— 必须返回空，find 才能如实说'让用户在界面用'。"""
+        d = os.path.join(self.tmp, "ui-plug", "lib")
+        os.makedirs(d)
+        with open(os.path.join(d, "index.js"), "w", encoding="utf-8") as fh:
+            fh.write('const el = document.createElement("div"); el.id = "petpet";\n')
+        tools, _ = self.ts.scan_tools(os.path.dirname(d))
+        self.assertEqual(tools, [])
+
+    def test_find_synonym_balance(self):
+        """「额度」要能命中「余额」域（用户不会背同义词表）。"""
+        doms = console.find_domain("还剩多少额度")
+        self.assertTrue(any(d == "balance" for d, _ in doms))
+
+    def test_find_synonym_memory(self):
+        doms = console.find_domain("帮我记住这个")
+        self.assertTrue(any(d == "memory" for d, _ in doms))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

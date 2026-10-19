@@ -1,6 +1,6 @@
 {
   "name": "dsh-skill-auditor",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "能力折旧表 · capability depreciation auditor for agent assets: regression-tests installed skills/plugins against the current model, attributes degradation, and recommends what to keep, rewrite, or drop. Ships as a DSH plugin (tools) and a host-neutral skill.",
   "keywords": [
     "dsh",

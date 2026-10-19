@@ -1,8 +1,8 @@
 {
   "name": "dsh-skill-auditor",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "source": "skill-auditor (upstream engine)",
-  "fileCount": 29,
+  "fileCount": 30,
   "files": [
     {
       "path": "golden/_template.json",
@@ -41,8 +41,8 @@
     },
     {
       "path": "scripts/console.py",
-      "bytes": 100757,
-      "sha256": "1fbe2087f874c37f7eafa83a9e14c166c50f059ca8c9daec85fa668cb7a33f08"
+      "bytes": 106744,
+      "sha256": "b256a7c9eac1f56ae3f100838dd8d174896cacdc1559acc9f0777cdf35870b93"
     },
     {
       "path": "scripts/fingerprint.py",
@@ -63,6 +63,11 @@
       "path": "scripts/regress.py",
       "bytes": 10033,
       "sha256": "974785b8c2728feb20c38cdbc270a1e545f39724db0a5f926060660a23f1870a"
+    },
+    {
+      "path": "scripts/tools_scan.py",
+      "bytes": 7012,
+      "sha256": "402127654dcb8b8e053c058a4e01857ebe2c1e04c44941c1f2df3f543bae7c37"
     },
     {
       "path": "seed/brainstorming.json",
@@ -142,7 +147,7 @@
     {
       "path": "SKILL.md",
       "bytes": 21800,
-      "sha256": "02f0de988e862a0765e82bdf198b269f866eaeaa3bd77349533088399d9ec06f"
+      "sha256": "85af9b9c290052fcf24b63e5fc4889c5ee6b3ba8c6310101d277a3781af13a7c"
     },
     {
       "path": "USAGE.md",

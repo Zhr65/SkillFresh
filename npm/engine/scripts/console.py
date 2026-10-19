@@ -493,10 +493,23 @@ def discover_assets(root, manifests, mode="dirs", quiet=False):
             "has_scripts": has_scripts,
             "risk": risk,
             "capabilities": capability_surface(p, manifest),
+            # 插件注册的可调用工具名（能力路由的基础：用户说功能 → Agent 知道调什么）。
+            # 每次都重新扫（源码变了工具也会变），但**不参与指纹**——
+            # 指纹管"插件变没变"，工具名管"怎么调"，两个维度。
+            "tools": _scan_plugin_tools(p),
             "path": os.path.abspath(p),
             "origin": where,     # profile（装进 profile）/ bundled（Electron 主包自带）/ dirs
         })
     return out
+
+
+def _scan_plugin_tools(p):
+    """扫插件源码拿它注册的工具名。失败返回空列表（不崩、不伪造）。"""
+    try:
+        import tools_scan
+        return tools_scan.scan_tools(p)[0]
+    except Exception:
+        return []
 
 
 def capability_surface(asset_path, manifest_path):
@@ -1661,6 +1674,119 @@ def cmd_can(args):
     return 3
 
 
+# ---------------------------------------------------------------- find（按功能找）
+# 用户场景：「我记得有个能查余额的」「那个记忆插件叫啥」——记得功能忘了名字。
+# 设计原则：
+#   ① 同义词 > 子串匹配：用户说"额度"也要能找到"余额"
+#   ② 输出必须带「工具名 + 怎么调」——光有插件名，Agent 还是不知道怎么用
+#   ③ 匹配原因要显示出来（为什么命中），让人能校对
+# 功能域同义词表：键 = 功能域，值 = 一组等价说法（中英）。命中任一即算。
+FIND_SYNONYMS = {
+    "memory": ["记忆", "记住", "回忆", "记住我", "长期记忆", "知识页", "memory", "remember", "recall"],
+    "browser": ["浏览器", "网页", "打开网站", "浏览", "browser", "web", "页面"],
+    "balance": ["余额", "额度", "剩余", "配额", "quota", "balance", "usage", "用量"],
+    "chart": ["图表", "图", "可视化", "画图", "chart", "图示", "架构图"],
+    "docx": ["文档", "word", "docx", "报告文档"],
+    "pptx": ["ppt", "pptx", "幻灯片", "演示", "slide"],
+    "sheet": ["表格", "excel", "xlsx", "表"],
+    "frontend": ["前端", "界面", "页面开发", "frontend", "网页开发"],
+    "debug": ["调试", "排错", "debug", "排查"],
+    "github": ["github", "仓库", "repo", "代码托管"],
+    "humanize": ["去ai味", "润色", "humanize", "改写", "文案"],
+    "search": ["搜索", "查资料", "联网", "search", "检索"],
+}
+# 功能域 → 常见资产名成分（把"功能"连到"名字"）
+FIND_DOMAIN_HINTS = {
+    "memory": ["memory", "hindsight", "remember", "mem"],
+    "browser": ["browser", "bsk", "chrome", "web"],
+    "balance": ["whale", "balance", "widget"],
+    "chart": ["chart", "diagram", "mermaid"],
+    "docx": ["docx", "office", "word"],
+    "pptx": ["pptx", "office"],
+    "sheet": ["xlsx", "sheet", "office"],
+    "frontend": ["frontend", "ui", "web"],
+    "github": ["github"],
+    "humanize": ["humanizer"],
+    "search": ["search", "web"],
+}
+
+
+def find_domain(task_l):
+    """任务描述 → 命中的功能域列表（按命中词数排序）。"""
+    out = []
+    for dom, words in FIND_SYNONYMS.items():
+        hits = [w for w in words if w in task_l]
+        if hits:
+            out.append((dom, hits))
+    out.sort(key=lambda x: -len(x[1]))
+    return out
+
+
+def cmd_find(args):
+    """按功能找资产：忘了名字也能调起来。返回"该调哪个工具"。"""
+    host, prof = resolve_host(args)
+    q = args.query
+    reg = load_registry(host)
+    if not reg:
+        print("[err] 还没有 registry.%s.json —— 先 scan" % host)
+        return 1
+    assets = reg_assets(reg)
+    ql = (q or "").lower()
+
+    # ① 功能域匹配（同义词）
+    domains = find_domain(ql)
+    # ② 名称/描述子串匹配（兜底：用户记了半个名字）
+    name_hits = []
+    for name, s in assets.items():
+        if s.get("eliminated"):
+            continue
+        desc = ((s.get("description") or "") + " " + name).lower()
+        if ql and (ql in desc or any(w in ql for w in re.split(r"[-_/@.]+", name.lower()) if len(w) >= 4)):
+            name_hits.append((name, s))
+    seen = {n for n, _ in name_hits}
+
+    # 功能域 → 资产：通过名字成分（FIND_DOMAIN_HINTS）
+    dom_hits = []
+    for dom, words in domains:
+        hints = FIND_DOMAIN_HINTS.get(dom, [dom])
+        for name, s in assets.items():
+            if s.get("eliminated") or name in seen:
+                continue
+            low = name.lower()
+            if any(h in low for h in hints):
+                dom_hits.append((name, s, dom, words[:3]))
+                seen.add(name)
+
+    if not name_hits and not dom_hits:
+        print(f"\n没有找到与「{q}」相关的已装 {prof['label']}。")
+        if domains:
+            print(f"（识别出功能域 {domains[0][0]}，但已装资产里没有名字相关的）")
+        print("行动建议：可以 suggest --need 看要不要装新的；或用内置能力做。")
+        return 3
+
+    print(f"\n「{q}」→ 找到 {len(name_hits) + len(dom_hits)} 个：\n")
+    for name, s in name_hits:
+        _print_find_hit(name, s, "名称/描述命中", q)
+    for name, s, dom, words in dom_hits:
+        _print_find_hit(name, s, "功能:%s（命中词 %s）" % (dom, ",".join(words)), q)
+    print("\n行动建议：直接按上面的工具名调用；UI 类插件（无工具）让用户在界面里用。")
+    return 0
+
+
+def _print_find_hit(name, s, why, query):
+    status = s.get("status") or "unverified"
+    icon = {"strong": "✅", "watch": "🟡"}.get(status, "⚪" if status == "unverified" else "⚠️")
+    tools = s.get("tools") or []
+    print(f"{icon} {name}  v{s.get('version') or '?'}  （{why}）")
+    if s.get("description"):
+        print(f"    {str(s['description'])[:100]}")
+    if tools:
+        print(f"    工具：{', '.join(tools[:5])}{' …' if len(tools) > 5 else ''}")
+        print(f"    怎么用：直接调上面的工具名（如 {tools[0]}）")
+    else:
+        print("    （没扫到可调用工具 —— 可能是纯 UI 插件，让用户在界面里用）")
+
+
 def match_existing(need, reg):
     """需求 → 已装资产。名称全串 + 名称片段（去噪）两级匹配。
 
@@ -2203,6 +2329,8 @@ def build_parser():
                     help="把本次结果合并进基线（否则报告只是报告，面板看不到）")
     rp.add_argument("--replace", action="store_true",
                     help="与 --promote 连用：整体替换基线，而不是按资产合并")
+    fd = sub.add_parser("find", help="按功能找资产：「那个查余额的叫啥」")
+    fd.add_argument("query", help="功能描述，如「查余额」「记忆」「打开网页」")
     cn = sub.add_parser("can", help="能力判断：这件事我能不能做（Agent 动手前调用）")
     cn.add_argument("task", help="任务描述，如「做一份季度财报 PPT」")
     cn.add_argument("--market", action="store_true",
@@ -2239,6 +2367,7 @@ def main():
         "audit": cmd_audit,
         "report": cmd_report, "suggest": cmd_suggest,
         "can": cmd_can,
+        "find": cmd_find,
         "discover": cmd_discover, "bootstrap": cmd_bootstrap, "onboard": cmd_onboard,
     }
     if cmd not in table:
