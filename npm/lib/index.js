@@ -17,12 +17,16 @@ function defaultHost() {
   return process.env.SKILL_AUDITOR_HOST || 'deepseek'
 }
 
-function buildArgv(cmd, args, extra = []) {
+function buildArgv(cmd, args, extra = [], positionalAfterCmd = false) {
   const host = (args && args.host) || defaultHost()
   const root = args && args.root
   const argv = ['--host', String(host)]
   if (root) argv.push('--root', String(root))
-  argv.push(cmd, ...extra)
+  argv.push(cmd)
+  // 位置参数（task/query）以 '-' 开头时会被 argparse 当选项（审查 P2），
+  // 在它们前插 '--' 终止选项解析。
+  if (positionalAfterCmd && extra.length) argv.push('--')
+  argv.push(...extra)
   return argv
 }
 
@@ -51,14 +55,15 @@ function formatFailure(res, what) {
  * 自动 scan 只写 registry.<host>.json，不动任何资产，也不删东西。
  */
 async function runWithAutoScan(cmd, args, extra, opts = {}) {
-  let res = await runConsole(buildArgv(cmd, args, extra), opts)
+  const positional = !!opts.positional
+  let res = await runConsole(buildArgv(cmd, args, extra, positional), opts)
   let note = ''
   if (res.code !== 0 && isMissingRegistry(`${res.stdout}${res.stderr}`)) {
     const host = (args && args.host) || defaultHost()
     const scan = await runConsole(buildArgv('scan', args), { timeout: opts.timeout })
     if (scan.code !== 0) return formatFailure(scan, `自动扫描 ${host} 资产`)
     note = `（首次使用：已自动扫描 ${host} 资产并写入 registry.${host}.json）\n\n`
-    res = await runConsole(buildArgv(cmd, args, extra), opts)
+    res = await runConsole(buildArgv(cmd, args, extra, positional), opts)
   }
   if (res.code !== 0) return formatFailure(res, `执行 ${cmd}`)
   return note + clean(res.stdout)
@@ -105,7 +110,7 @@ const TOOLS = [
     async (args) => {
       const q = String((args && args.query) || '').trim()
       if (!q) return '缺少 query 参数：把用户提到的功能用一句话描述传进来。'
-      return runWithAutoScan('find', args, [q], { timeout: 120000 })
+      return runWithAutoScan('find', args, [q], { timeout: 120000, positional: true })
     },
   ),
   tool(
@@ -123,7 +128,7 @@ const TOOLS = [
       if (!task) return '缺少 task 参数：把用户的任务用一句话描述传进来。'
       const extra = [task]
       if (String(args && args.market) === '1') extra.push('--market')
-      return runWithAutoScan('can', args, extra, { timeout: 120000 })
+      return runWithAutoScan('can', args, extra, { timeout: 120000, positional: true })
     },
   ),
   tool(
@@ -167,7 +172,9 @@ const TOOLS = [
       const argv = buildArgv('probe', args)
       const res = await runConsole(argv, { timeout: 60000 })
       // probe 默认退出码 0；只有 --strict 才非零。非零时也要把正文给出去。
-      if (res.code !== 0 && /registry\.[\w.-]+\.json missing/.test(`${res.stdout}${res.stderr}`)) {
+      // probe 正常退出码是 0（审查 P2：原条件要求 code!==0 永假，auto-scan 是死代码）。
+      // 改为只看文本：registry 缺失就自动 scan 一次再跑。
+      if (/registry\.[\w.-]+\.json missing/.test(`${res.stdout}${res.stderr}`)) {
         return runWithAutoScan('probe', args, [], { timeout: 60000 })
       }
       return clean(`${res.stdout}${res.stderr}`) || formatFailure(res, '运行时证据采集')
@@ -259,13 +266,15 @@ export function apply(ctx) {
   runStartupAudit(ctx)
 }
 
-/** 启动体检：不 await、失败只记日志。 */
+/** 启动体检：不 await、失败只记日志。
+ *  审查 P1：timer 与子进程都 unref —— 宿主自然退出不被拖住（原来挂到 audit
+ *  结束最长 ~2 分钟）；宿主强制退出时 Python 子进程随之释放（不再孤儿化）。 */
 function runStartupAudit(ctx) {
-  setTimeout(async () => {
+  const timer = setTimeout(async () => {
     try {
       ensureEngine()
       const res = await runConsole(['--host', defaultHost(), 'audit'],
-                                   { timeout: 120000 })
+                                   { timeout: 120000, background: true })
       const text = String(res.stdout || '')
       if (!text.trim()) return
       try {
@@ -291,6 +300,7 @@ function runStartupAudit(ctx) {
       ctx.logger?.info?.(`${PLUGIN_NAME}: 启动体检跳过（${err && err.message}）`)
     }
   }, 8000)
+  timer.unref?.()
 }
 
 export default { name: PLUGIN_NAME, inject, apply }

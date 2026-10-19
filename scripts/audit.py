@@ -29,9 +29,26 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 
+# GBK 防护（审查 P1）：audit.py 之前直接 print emoji，GBK 终端必崩
+# （npm 插件路径因强制 PYTHONIOENCODING=utf-8 不受影响，纯 CLI 冷启动必崩）。
+try:
+    from console import use_safe_stdio, sym
+    use_safe_stdio()
+    SYM_OK, SYM_UP, SYM_WARN, SYM_TEST = sym("ok"), sym("up"), sym("warn"), sym("test")
+except Exception:  # 兜底：console.py 缺失也不崩
+    SYM_OK, SYM_UP, SYM_WARN, SYM_TEST = "[ok]", "[up]", "[!]", "[t]"
+
 UA = {"User-Agent": "skill-auditor/0.5.0"}
 NPM = "https://registry.npmjs.org/%s/latest"
 DSH_MARKET = "https://deepseek1024.com/api/v2/plugins?limit=200"
+
+
+def _int(v):
+    """审查 P1：int('1,234') / int('12.5') 会崩——畸形数据一律降级为 0。"""
+    try:
+        return int(float(str(v).replace(",", "")))
+    except (TypeError, ValueError):
+        return 0
 
 
 def get_json(url, timeout=15):
@@ -53,6 +70,23 @@ def npm_latest(pkg):
         return get_json(NPM % urllib.parse.quote(pkg, safe=""))["version"]
     except Exception:
         return None
+
+
+def npm_latest_batch(pkgs, per_call_timeout=6):
+    """批量查 npm latest，带**总预算**（审查 P1）：
+    原来串行 N×15s，网络半通时必然超过外层 120s 被杀，结果全丢。
+    现在共享一个 deadline：预算耗尽，剩余插件标 None（输出会明说版本面不完整），
+    且首个成功/首个失败即推断后续——同 registry 的可达性是一致的。"""
+    deadline = __import__("time").time() + per_call_timeout * min(len(pkgs), 6)
+    out = {}
+    for p in pkgs:
+        if __import__("time").time() > deadline:
+            for rest in pkgs:
+                if rest not in out:
+                    out[rest] = None
+            break
+        out[p] = npm_latest(p)
+    return out
 
 
 def market_index():
@@ -102,7 +136,7 @@ def find_alternatives(name, mkt, installed_version, limit=3):
         return []
     me = mkt.get(name)
     cat = (me or {}).get("category")
-    base_install = int((me or {}).get("installCount") or 0)
+    base_install = _int((me or {}).get("installCount"))
     # 太通用的词会造成误报（实测：browser 插件的替代里混进了 memory 插件）。
     # 注意：browser / memory / model 这些是**功能词**，不能排除 ——
     # 排除了就找不到真正的同类（它们的替代项正是靠这些词命中的）。
@@ -121,7 +155,7 @@ def find_alternatives(name, mkt, installed_version, limit=3):
         same_cat = bool(cat) and p.get("category") == cat
         if not (shared or same_cat):
             continue
-        inst = int(p.get("installCount") or 0)
+        inst = _int(p.get("installCount"))
         # 安装量太低的不算替代（"更好的"至少得有人用）
         if inst < max(10, base_install // 3):
             continue
@@ -293,9 +327,14 @@ def main(argv):
 
     buckets = {"upgrade": [], "fix": [], "retire": [], "ok": [], "untested": []}
 
+    # 批量查版本（带总预算），不再串行 N×15s
+    latest_map = {}
+    if not offline:
+        latest_map = npm_latest_batch(list(assets.keys()))
+
     for name, s in sorted(assets.items()):
         installed = s.get("version")
-        latest = None if offline else npm_latest(name)
+        latest = latest_map.get(name)
         behind = None
         if installed and latest:
             a, b = vtuple(installed), vtuple(latest)
@@ -333,7 +372,7 @@ def main(argv):
 
     # 用户视角的模型变更提示：切了模型，以前测过的都不算数了。
     if model_changed:
-        print(f"\n{BULB if False else '⚠'} 检测到模型变更：之前测的是 {'、'.join(prev_models)}，"
+        print(f"\n{SYM_WARN} 检测到模型变更：之前测的是 {'、'.join(prev_models)}，"
               f"现在是 {active}")
         need = [n for n in assets if n not in base or not base[n]["n"]]
         print(f"   这 {len(need)} 个资产在新模型上**还没测过** —— 旧模型的通过率不能代表它")
@@ -372,12 +411,12 @@ def main(argv):
                             print("          %s" % a["desc"])
         print(f"  → {advice}")
 
-    show("🔴 建议先修（跑不起来 / 通过率低）", buckets["fix"],
+    show(f"{SYM_WARN} 建议先修（跑不起来 / 通过率低）", buckets["fix"],
          "修配置或环境；修不好再考虑停用——别急着重写", suggest_alts=True)
-    show("⬆️ 建议升级（市场有新版）", buckets["upgrade"],
+    show(f"{SYM_UP} 建议升级（市场有新版）", buckets["upgrade"],
          "升级前看一眼 changelog 有没有 breaking change；升完 scan 一次", suggest_alts=True)
-    show("✅ 正常", buckets["ok"], "保持现状")
-    show("⚪ 未测（没有基线，无法判断好坏）", buckets["untested"],
+    show(f"{SYM_OK} 正常", buckets["ok"], "保持现状")
+    show(f"{SYM_TEST} 未测（没有基线，无法判断好坏）", buckets["untested"],
          "这不是故障。想测就跑：console.py baseline --from-seed（seed 里有现成用例）")
 
     if not any(buckets.values()):
@@ -391,15 +430,16 @@ def main(argv):
     checked_runtime = bool(logs)
     tested = len(buckets["ok"]) + len(buckets["fix"])
     print(f"\n{'='*70}")
+    s1 = SYM_WARN
     print(f"体检覆盖度：版本 {checked_version}/{len(assets)}"
           f"  · 运行时 {'已读日志' if checked_runtime else '无日志可读'}"
           f"  · 有基线 {tested}/{len(assets)}")
     if not checked_version:
-        print("  ⚠️ 版本面没查到任何数据（网络不可达？）—— 这不等于'已是最新'")
+        print("  {s1} 版本面没查到任何数据（网络不可达？）—— 这不等于'已是最新'")
     if not checked_runtime:
-        print("  ⚠️ 没有可读日志 —— 这不等于'运行正常'")
+        print("  {s1} 没有可读日志 —— 这不等于'运行正常'")
     if tested == 0:
-        print("  ⚠️ 全都没有基线 —— 这不等于'都没问题'，只是没测过")
+        print("  {s1} 全都没有基线 —— 这不等于'都没问题'，只是没测过")
     print("口径：版本来自 npm registry（权威）；市场条目只作参考。")
     print("      版本落后 ≠ 该淘汰（可能是上游 breaking change 未适配）。")
     print("      没基线 ≠ 该删（只是没测过）。")

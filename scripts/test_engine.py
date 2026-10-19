@@ -1243,6 +1243,24 @@ class CanJudgeTests(unittest.TestCase):
         self.assertEqual(v, "missing")
         self.assertEqual(cats, [], "不要硬凑类目")
 
+    def test_unverified_is_not_ok(self):
+        """审查 P1：装了但没测过（unverified/无 status）不能当「能做」。"""
+        reg = {"assets": {"new-plug": {"version": "1.0.0", "status": "unverified"}}}
+        v, _h, _c = console.can_judge("用 new-plug 帮我干活", reg)
+        self.assertEqual(v, "degraded", "unverified ≠ ok")
+        reg2 = {"assets": {"newer": {"version": "1.0.0"}}}  # 无 status 字段
+        v2, _h2, _c2 = console.can_judge("用 newer 帮我干活", reg2)
+        self.assertEqual(v2, "degraded", "status 缺失同理")
+
+    def test_find_domain_word_boundaries(self):
+        """审查 P1：无词边界子串误报（apple⊂app 等 23% 误报率）必须为 0。"""
+        for q in ("apple pie recipe", "applications of calculus", "happy birthday song"):
+            self.assertEqual(console.find_domain(q.lower()), [],
+                             "%r 不该命中任何域" % q)
+        # 正例不回归
+        self.assertEqual(console.find_domain("帮我做个 app")[0][0], "appdev")
+        self.assertEqual(console.find_domain("email 模板")[0][0], "email")
+
     def test_cli_exit_codes(self):
         """退出码可被脚本/Agent 用来分支：0 能做 / 2 有问题 / 3 缺。"""
         tmp = mkdtemp()

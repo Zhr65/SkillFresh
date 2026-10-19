@@ -269,8 +269,25 @@ def load_json(path, default=None):
 
 
 def write_json(path, obj):
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False, indent=2)
+    """原子写：临时文件 + os.replace。
+
+    审查发现（P0）：原来直接 open("w") 截断——启动自动体检和用户手动命令
+    并发写同一 registry 时会产生半截 JSON，而 load_json 失败静默返回空，
+    merge_baseline 会把空基线当真写回，历史判定全丢。
+    os.replace 在 Windows/POSIX 都是原子操作，读者要么看到旧文件要么看到新文件。
+    """
+    d = os.path.dirname(path)
+    tmp = path + ".tmp-%d" % os.getpid()
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(obj, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def parse_frontmatter(text):
@@ -1616,8 +1633,13 @@ def can_judge(task, reg):
     if not hits:
         return CAN_VERDICT_MISSING, [], cats
 
-    # 判定健康度：任一命中资产状态不对 → degraded（用户视角：能做的事有短板）
-    bad = [h for h in hits if (h[1].get("status") in ("blocked", "degraded"))]
+    # 判定健康度（审查 P1）：任一命中资产 blocked/degraded → degraded。
+    # status 缺失/unverified 不再判 ok —— 「装了但没测过」不是「能用」，
+    # 把它当 ok 会引导 Agent 无验证地依赖它（实测报告：过度乐观）。
+    # watch（有基线且通过，只是 K 低）保留 ok——它至少被真实验证过。
+    bad = [h for h in hits
+           if (h[1].get("status") in ("blocked", "degraded", "unverified")
+               or not h[1].get("status"))]
     if bad:
         return CAN_VERDICT_DEGRADED, hits, cats
     return CAN_VERDICT_OK, hits, cats
@@ -1754,15 +1776,40 @@ FIND_DOMAIN_HINTS = {
 def find_domain(task_l):
     """任务描述 → 命中的功能域列表（按命中强度排序）。
 
-    强度 = Σ命中词长（字符数）。单字命中（如 sheet 域的「表」）必须弱于
-    多字命中（database 域的「数据库」）—— 实测「建个数据库表」曾因两者
-    同分、字典序 sheet 靠前而误判成表格处理。
+    审查 P1 修正（实测误报率 23%）：
+    · ASCII 词用词边界匹配（\\b）—— 'apple' 不得命中 'app'、'email' 不得命中 'ai'
+    · 中文短词（≤2 字）要求两侧不是中文字符 —— '表' 不得命中 '手表'
+    · 强度 = Σ命中词长；平分时保持词表顺序（不再靠字典序）
     """
+    task_l = (task_l or "").lower()
     out = []
     for dom, words in FIND_SYNONYMS.items():
-        hits = [w for w in words if w in task_l]
+        hits = []
+        for w in words:
+            if not w:
+                continue
+            if w.isascii():
+                # 词边界：纯 ASCII 词两侧必须是非字母数字
+                if re.search(r"(?<![a-z0-9])" + re.escape(w) + r"(?![a-z0-9])", task_l):
+                    hits.append(w)
+            else:
+                # 中文词：命中即可。只有**单字**才要求两侧非中文（'表'⊂'手表'）。
+                # 词表里的正经双字域词（'接口'/'后端'）直接放行——它们本身够特异。
+                start = 0
+                while True:
+                    i = task_l.find(w, start)
+                    if i < 0:
+                        break
+                    before = task_l[i - 1] if i > 0 else ""
+                    after = task_l[i + len(w)] if i + len(w) < len(task_l) else ""
+                    _is_cjk = lambda ch: "\u4e00" <= ch <= "\u9fff"
+                    if len(w) >= 2 or (not _is_cjk(before) and not _is_cjk(after)):
+                        hits.append(w)
+                        break
+                    start = i + 1
         if hits:
-            weight = sum(len(w) for w in hits)
+            # 单字命中权重打 3 折：'表'（sheet）不该与'数据库'（database）平权
+            weight = sum(len(w) if len(w) >= 2 else 1 for w in hits)
             out.append((dom, hits, weight))
     out.sort(key=lambda x: -x[2])
     return [(dom, hits) for dom, hits, _w in out]
@@ -1794,18 +1841,43 @@ def cmd_find(args):
     # ②' 描述分词兜底：同义词表没覆盖的计算机方向（用户说法千千万，表列不完）。
     # 用户任务里的实词 ≥2 字、且出现在资产描述里 → 命中。
     # 这是"所有计算机方向都要有"的兜底层：不靠维护词表，靠描述本身的词汇重叠。
+    # 审查 P1 修正：原实现按空白分词，中文整句成单 token（len≥2 必过）→
+    # 整串子串匹配对英文 desc 100% 漏报、对中文 desc 误报。改成：
+    #   · CJK 相邻二元切分（bigram）：'数据库表'→['数据','据库','库表']
+    #   · 英文按 \b 切词、最短 3 字符（'to'/'my' 不再命中任何描述）
     def _desc_hits():
         out = []
         stop = set(TASK_VERBS) | {"我", "帮", "一个", "这个", "一下", "的", "了", "吗", "呢", "想", "要", "能"}
-        words = [w for w in re.split(r"[\s,，。、/?！!]+", ql)
-                 if len(w) >= 2 and w not in stop]
+        cjk = lambda ch: "\u4e00" <= ch <= "\u9fff"
+
+        def _tokens(text):
+            toks = []
+            for chunk in re.split(r"[\s,，。、/?！!；;：:（）()\"']+", text):
+                if not chunk:
+                    continue
+                # 拆出连续 CJK 段和连续 ASCII 段
+                for m in re.finditer(r"[\u4e00-\u9fff]+|[a-z0-9]+", chunk):
+                    seg = m.group(0)
+                    if cjk(seg[0]):
+                        if len(seg) == 1:
+                            if seg not in stop and len(seg) >= 2:
+                                toks.append(seg)
+                        else:
+                            toks.extend(seg[i:i + 2] for i in range(len(seg) - 1))
+                    else:
+                        if len(seg) >= 3 and seg not in stop:
+                            toks.append(seg)
+            return toks
+
+        words = [w for w in _tokens(ql) if w not in stop]
         if not words:
             return out
         for name, s in assets.items():
             if s.get("eliminated") or name in seen:
                 continue
             desc = ((s.get("description") or "") + " " + name).lower()
-            hit_words = [w for w in words if w in desc]
+            desc_tokens = set(_tokens(desc)) | {name.lower()}
+            hit_words = [w for w in words if w in desc_tokens or w in desc]
             if hit_words:
                 out.append((name, s, hit_words[:3]))
         return out

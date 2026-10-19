@@ -131,6 +131,11 @@ export function ensureEngine() {
 
   if (action !== 'unchanged') {
     fs.mkdirSync(DATA_DIR, { recursive: true })
+    // 原子升级（审查 P0）：先复制到临时目录再逐目录 rename。
+    // 原来 rmSync→cpSync 原地改：并发会话（启动自动体检 + 用户首调）会读到
+    // 半写文件/ENOENT。rename 在同盘上原子；marker 最后写，中断可自愈。
+    const tmpRoot = path.join(DATA_DIR, `.upgrade-${process.pid}-${Date.now()}`)
+    fs.mkdirSync(tmpRoot, { recursive: true })
     for (const dir of ENGINE_DIRS) {
       const src = path.join(ENGINE_SRC, dir)
       if (!fs.existsSync(src)) continue
@@ -138,7 +143,8 @@ export function ensureEngine() {
       // 先删后拷：`cpSync(force)` 只覆盖同名文件，新版本**删掉**的旧脚本会残留下来，
       // 后续 import 可能拿到旧模块（改名/拆分的版本最容易踩）。只删引擎目录，不碰用户数据。
       if (fs.existsSync(dst)) fs.rmSync(dst, { recursive: true, force: true })
-      fs.cpSync(src, dst, { recursive: true })
+      fs.cpSync(src, path.join(tmpRoot, dir), { recursive: true })
+      fs.renameSync(path.join(tmpRoot, dir), dst)
     }
     for (const rel of ENGINE_FILES) {
       const src = path.join(ENGINE_SRC, rel)
@@ -148,6 +154,7 @@ export function ensureEngine() {
       fs.mkdirSync(path.dirname(dst), { recursive: true })
       fs.copyFileSync(src, dst)
     }
+    fs.rmSync(tmpRoot, { recursive: true, force: true })
     writeJson(markerPath(), {
       version: PACKAGE_VERSION,
       action,
@@ -213,11 +220,15 @@ function execFileAsync(cmd, args, opts = {}) {
   })
 }
 
-/** 探测可用的 Python（>=3.8）。结果缓存，失败也缓存，避免每次调用都试 3 个命令。 */
+/** 探测可用的 Python（>=3.8）。成功永久缓存；失败缓存 60s（负缓存 TTL）。
+ *  审查 P1：失败也永久缓存会让「现场装好 Python」的用户整个会话期报废——
+ *  宿主常驻，负缓存必须过期重试。 */
+const PY_NEG_TTL = 60_000
 export async function resolvePython() {
   if (pythonCache) {
     if (pythonCache.ok) return pythonCache
-    throw new Error(pythonCache.error)
+    if (Date.now() - pythonCache.at < PY_NEG_TTL) throw new Error(pythonCache.error)
+    pythonCache = null // 负缓存过期：用户可能刚装好 Python，重试
   }
   const tried = []
   for (const cand of pythonCandidates()) {
@@ -236,7 +247,7 @@ export async function resolvePython() {
   const error =
     '找不到可用的 Python 3.8+。装上 Python 3，或用环境变量 SKILL_AUDITOR_PYTHON 指定解释器绝对路径。' +
     `（已试：${tried.join('；')}）`
-  pythonCache = { ok: false, error }
+  pythonCache = { ok: false, error, at: Date.now() }
   throw new Error(error)
 }
 
@@ -249,16 +260,33 @@ export async function runConsole(argv, opts = {}) {
   const py = await resolvePython()
   ensureEngine()
   // 每次调用前刷新模型事件（宿主环境里能读到什么就记什么）。
-  // 用户不该记得手动跑 stamp —— 这是「多模型」场景能自动区分数据的前提。
-  try { appendModelEvent(opts.ctx) } catch {}
+  // 审查 P2 修正：原来每次调用都写一行（多为 unknown），jsonl 无限增长且与
+  // 工具自述「只读」矛盾。现在节流：同模型 5 分钟内不重复写。
+  try { appendModelEvent(opts.ctx, { throttleMs: 5 * 60_000 }) } catch {}
   const script = path.join(DATA_DIR, 'scripts', 'console.py')
-  const res = await execFileAsync(py.cmd, [...py.pre, script, ...argv], {
+  // 审查 P1：background 任务 unref（宿主退出不被拖住）；用户调用的工具照常等待。
+  // 实现：后台路径用 execFileAsync（原有 Promise 封装）但传入 unref 选项；
+  // 前台路径沿用 execFileAsync —— 简单可靠，不用 ChildProcess 内部 API。
+  if (opts.background) {
+    // 后台：不等待结果，触发后立即返回（错误只记日志由调用方兜底）
+    const child = execFile(py.cmd, [...py.pre, script, ...argv], {
+      cwd: DATA_DIR,
+      timeout: opts.timeout ?? 180000,
+      maxBuffer: 16 * 1024 * 1024,
+      windowsHide: true,
+      env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
+    })
+    child.unref?.()
+    child.on('error', () => {})   // 防未处理 error 事件崩宿主
+    return { code: 0, stdout: '', stderr: '', background: true }
+  }
+  return execFileAsync(py.cmd, [...py.pre, script, ...argv], {
     cwd: DATA_DIR,
     timeout: opts.timeout ?? 180000,
     maxBuffer: 16 * 1024 * 1024,
+    windowsHide: true,
     env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
   })
-  return res
 }
 
 /** 引擎状态：给 doctor / 报错信息用。 */
@@ -330,15 +358,28 @@ export function detectModel(ctx) {
   return { model: 'unknown', source: 'none' }
 }
 
-export function appendModelEvent(ctx) {
+export function appendModelEvent(ctx, opts = {}) {
   const { model, source } = detectModel(ctx)
   try {
+    // 节流（审查 P2）：同模型 5 分钟内不重复写，jsonl 不再无限增长。
+    // 用事件文件自身大小做粗节流：最后一条同 model 且 <5min 则跳过。
+    const p = path.join(DATA_DIR, 'model-events.jsonl')
+    if (opts.throttleMs) {
+      try {
+        const st = fs.statSync(p)
+        if (Date.now() - st.mtimeMs < opts.throttleMs && st.size > 0) {
+          const tail = fs.readFileSync(p, 'utf8').trim().split('\n').pop()
+          const last = JSON.parse(tail)
+          if (last.model === model) return { model, source, throttled: true }
+        }
+      } catch {}
+    }
     fs.mkdirSync(DATA_DIR, { recursive: true })
     const line = JSON.stringify({
       ts: new Date().toISOString(), model, source,
       packageVersion: PACKAGE_VERSION,
     })
-    fs.appendFileSync(path.join(DATA_DIR, 'model-events.jsonl'), line + '\n', 'utf8')
+    fs.appendFileSync(p, line + '\n', 'utf8')
     return { model, source }
   } catch {
     return { model, source, failed: true }
