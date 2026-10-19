@@ -1,0 +1,13 @@
+{
+  "skill": "verification-before-completion",
+  "seed": true,
+  "note": "community seed — judge criteria are a starting point, not authority",
+  "cases": [
+    {
+      "id": "vb-10",
+      "input": "我改完了，你看下有没有问题",
+      "expected": "不直接下结论；要求/执行验证（跑测试、给证据、贴输出），再报告'通过/未通过'；区分'确认的问题'与'未验证的猜测'",
+      "judge": "是否给出可核验证据；是否把未经证实的说法标为猜测；没有把'应该没问题'当结论"
+    }
+  ]
+}

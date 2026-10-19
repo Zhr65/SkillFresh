@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "cases": 35,
+  "assets": {
+    "frontend-dev": {
+      "cases": 7,
+      "file": "frontend-dev.json"
+    },
+    "github": {
+      "cases": 7,
+      "file": "github.json"
+    },
+    "humanizer": {
+      "cases": 7,
+      "file": "humanizer.json"
+    },
+    "writing-skills": {
+      "cases": 7,
+      "file": "writing-skills.json"
+    },
+    "brainstorming": {
+      "cases": 1,
+      "file": "brainstorming.json"
+    },
+    "systematic-debugging": {
+      "cases": 2,
+      "file": "systematic-debugging.json"
+    },
+    "test-driven-development": {
+      "cases": 1,
+      "file": "test-driven-development.json"
+    },
+    "verification-before-completion": {
+      "cases": 1,
+      "file": "verification-before-completion.json"
+    },
+    "executing-plans": {
+      "cases": 1,
+      "file": "executing-plans.json"
+    },
+    "dispatching-parallel-agents": {
+      "cases": 1,
+      "file": "dispatching-parallel-agents.json"
+    }
+  },
+  "note": "community seed; see seed/README.md",
+  "asset_count": 10
+}

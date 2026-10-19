@@ -1,0 +1,69 @@
+{
+  "skill": "frontend-dev",
+  "seed": true,
+  "note": "community seed — judge criteria are a starting point, not authority",
+  "cases": [
+    {
+      "id": "fe-01",
+      "polarity": "positive",
+      "input": "这个管理页面是不是每天都可以直接打开",
+      "type": "ui-implement",
+      "expected": "判断并给出让管理页面可每日直接打开的实现/配置方案",
+      "judge": "是否给出可操作的实现路径（而非只回答能否）",
+      "provenance": "session:2026-10-12-11-25-38",
+      "scrubbed": true
+    },
+    {
+      "id": "fe-02",
+      "polarity": "positive",
+      "input": "改成只在workbuddy页面才显示挂件，而且bug：点了退出弹两次cmd窗口然后又打开",
+      "type": "bugfix",
+      "expected": "限定挂件仅 WorkBuddy 页面显示，并修复退出时弹两次 cmd 窗口又重新打开的缺陷",
+      "judge": "是否覆盖'作用域'与'退出 bug'两个独立问题",
+      "provenance": "session:2026-10-14-18-47-40",
+      "scrubbed": true
+    },
+    {
+      "id": "fe-03",
+      "polarity": "positive",
+      "input": "它这跟dsh-whale-widget不一样啊，我要的是一直在workbuddy页面中，不是在对话中",
+      "type": "ui-correct",
+      "expected": "将挂件改为持续驻留在 WorkBuddy 页面内，而非对话流中",
+      "judge": "是否理解'页面内常驻'与'对话中'的差异并据此修正",
+      "provenance": "session:2026-10-14-18-47-40",
+      "scrubbed": true
+    },
+    {
+      "id": "fe-04",
+      "polarity": "positive",
+      "input": "widget.src.html 面板页面源码（改这个）",
+      "type": "edit-ui",
+      "expected": "正确编辑 widget.src.html 面板源码并给出构建/生效方式",
+      "judge": "是否改对文件、改动是否符合面板需求",
+      "provenance": "session:2026-10-14-18-47-40",
+      "scrubbed": true
+    },
+    {
+      "id": "fe-05",
+      "polarity": "positive",
+      "input": "server.js MCP 服务端（工具 + ui://wb-points/points 资源）核心，assets/widget.src.html 面板页面源码核心",
+      "type": "understand-structure",
+      "expected": "准确理解 MCP 服务端 + 面板资源的插件结构并据此改动",
+      "judge": "是否定位到正确文件与职责边界",
+      "provenance": "session:2026-10-14-18-47-40",
+      "scrubbed": true
+    },
+    {
+      "id": "fe-10",
+      "input": "我有一个按钮，hover 时背景色不变，帮我写个最小复现（只要 HTML+CSS，三行以内）",
+      "expected": "给出可运行的最小 HTML+CSS 片段，且 hover 规则确实会触发背景色变化",
+      "judge": "代码可直接保存为 .html 打开验证；hover 变化是否真的生效（不是写了 :hover 但选择器错）"
+    },
+    {
+      "id": "fe-11",
+      "input": "flex 布局里怎么让一个元素左右分开、垂直居中？写个最小例子",
+      "expected": "给出最小 HTML+CSS，使用 justify-content: space-between（或等价）+ align-items: center",
+      "judge": "是否实现两件事（左右分开 + 垂直居中）；代码是否最小可运行"
+    }
+  ]
+}

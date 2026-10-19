@@ -1,0 +1,64 @@
+{
+  "skill": "humanizer",
+  "seed": true,
+  "note": "community seed — judge criteria are a starting point, not authority",
+  "cases": [
+    {
+      "id": "hu-01",
+      "polarity": "positive",
+      "type": "humanize",
+      "input": "Our new analytics dashboard serves as a testament to our commitment to data-driven excellence. Moreover, it delivers a seamless, intuitive, and powerful experience—empowering teams to unlock insights effortlessly. It's not just a dashboard, it's a transformation of how organizations approach decision-making. Industry experts believe this will reshape the entire analytics landscape.",
+      "expected": "移除 inflated symbolism / AI 词 / rule-of-three / em dash 伪深度 / 负向排比 / 模糊归因；用具体功能替代空泛吹捧，保留原意。",
+      "judge": "是否清掉上述目标模式、是否补具体事实而非继续吹、是否保留原意",
+      "provenance": "synthetic: inflated-significance + promotional + negative-parallelism family"
+    },
+    {
+      "id": "hu-02",
+      "polarity": "positive",
+      "type": "humanize",
+      "input": "Nestled in the heart of the valley, the Riverstone Café boasts a vibrant atmosphere and a rich menu of locally sourced dishes, offering a breathtaking dining experience.",
+      "expected": "移除 promotional 词（nestled / boasts / vibrant / rich / breathtaking），改为中性、具体的描述。",
+      "judge": "是否去掉宣传腔、是否给出具体信息、是否保留地点与定位",
+      "provenance": "synthetic: promotional/advertisement language family"
+    },
+    {
+      "id": "hu-03",
+      "polarity": "positive",
+      "type": "humanize",
+      "input": "The museum's minimalist design resonates with the city's industrial past, symbolizing resilience and renewal, reflecting the community's enduring spirit.",
+      "expected": "移除 -ing 伪深度（symbolizing / reflecting）与 abstract 拔高，改为可核对的具体描述。",
+      "judge": "是否消除 -ing 堆叠与象征拔高、是否落到具体细节、是否不臆造事实",
+      "provenance": "synthetic: superficial -ing analysis family"
+    },
+    {
+      "id": "hu-04",
+      "polarity": "positive",
+      "type": "humanize",
+      "input": "Observers have cited the program's success, and experts argue that it plays a pivotal role in improving regional outcomes.",
+      "expected": "移除 vague attribution（Observers / experts argue）与 AI 词（pivotal role），替换为具体来源或数据。",
+      "judge": "是否消除模糊归因、是否给出可核实来源/数据、是否保留结论方向",
+      "provenance": "synthetic: vague attribution / weasel words family"
+    },
+    {
+      "id": "hu-05",
+      "polarity": "positive",
+      "type": "humanize",
+      "input": "In order to achieve this goal, it is important to note that the platform has the ability to scale. It could potentially possibly be argued that adoption might have some effect on revenue. The future looks bright. Exciting times lie ahead.",
+      "expected": "移除 filler（In order to / it is important to note / has the ability to）、过度 hedging、generic positive conclusion，改为简洁陈述与具体计划。",
+      "judge": "是否压缩填充词、是否降低过度限定、是否用具体信息替代空泛结尾",
+      "provenance": "synthetic: filler + hedging + generic conclusion family"
+    },
+    {
+      "id": "hu-10",
+      "input": "这段话帮我去掉 AI 味：「综上所述，本方案不仅奠定了坚实的基石，更为未来的发展注入了强劲的动力，具有里程碑式的重大意义。」",
+      "expected": "去掉空泛吹捧（基石/里程碑/强劲动力），替换为具体内容；若无具体事实可写，就指出'原文没有可保留的实质信息'",
+      "judge": "是否清除空洞修辞；是否不编造事实；是否保留原意"
+    },
+    {
+      "id": "hu-11",
+      "input": "把这段改自然点：「In order to achieve this goal, it is important to note that the platform has the ability to scale.」",
+      "expected": "压缩冗词（In order to / it is important to note / has the ability to），给出更短更直接的说法",
+      "judge": "是否明显变短；是否语义不变；不是同义替换式的敷衍"
+    }
+  ]
+}

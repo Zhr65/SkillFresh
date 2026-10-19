@@ -1,0 +1,69 @@
+{
+  "skill": "writing-skills",
+  "seed": true,
+  "note": "community seed — judge criteria are a starting point, not authority",
+  "cases": [
+    {
+      "id": "ws-01",
+      "polarity": "positive",
+      "input": "安装Superpowers skill",
+      "type": "install",
+      "expected": "定位并安装/启用 Superpowers 系列 skill，回报安装结果与可用子技能",
+      "judge": "是否正确完成安装/启用且未误删或报错",
+      "provenance": "session:2026-10-12-12-04-03",
+      "scrubbed": true
+    },
+    {
+      "id": "ws-02",
+      "polarity": "positive",
+      "input": "我想写一个agent工程落地的skill或者mcp或者插件等",
+      "type": "create-skill",
+      "expected": "引导用户收窄范围，并按 TDD 流程（先失败测试→最小文档→验证）搭建 skill 骨架",
+      "judge": "是否先澄清范围、是否遵循 RED-GREEN-REFACTOR 而非直接写文档",
+      "provenance": "session:2026-10-14-16-14-29",
+      "scrubbed": true
+    },
+    {
+      "id": "ws-03",
+      "polarity": "positive",
+      "input": "你打开https://github.com/mattpocock/skills把 README 或某个 SKILL.md 原文贴给我",
+      "type": "research-extract",
+      "expected": "抓取并原文呈现目标 SKILL.md / README 内容",
+      "judge": "是否取到真实原文、是否标注来源",
+      "provenance": "session:2026-10-14-16-14-29",
+      "scrubbed": true
+    },
+    {
+      "id": "ws-04",
+      "polarity": "positive",
+      "input": "我是agent应用开发的学习者，你觉得哪些项目可以放进简历里面",
+      "type": "advise",
+      "expected": "给出可放进简历的 agent 项目建议，且与用户学习者定位匹配",
+      "judge": "建议是否具体、是否贴合 agent 开发学习者的背景",
+      "provenance": "session:2026-10-14-17-00-42",
+      "scrubbed": true
+    },
+    {
+      "id": "ws-05",
+      "polarity": "positive",
+      "input": "不理解你说的，我现在是agent应用开发的学习者，想要有一个agent的skill或者harness插件来当作项目发到github，希望获取到高star",
+      "type": "create-skill",
+      "expected": "澄清高 star 目标的可行路径，给出 skill 项目设计与发布计划",
+      "judge": "是否回应'高 star'诉求、是否落地为可执行的 skill 项目方案",
+      "provenance": "session:2026-10-14-16-14-29",
+      "scrubbed": true
+    },
+    {
+      "id": "ws-10",
+      "input": "帮我写一个新的 skill，作用是「把会议记录整理成待办清单」",
+      "expected": "先追问/澄清必要信息（输入格式、输出格式、是否分类），再按最小结构产出 SKILL.md 草稿；不直接堆一长份文档",
+      "judge": "是否澄清关键歧义；SKILL.md 是否含 frontmatter（name/description）+ 触发条件 + 工作步骤"
+    },
+    {
+      "id": "ws-11",
+      "input": "我这个 skill 的 description 写什么好？它是用来「查 GitHub 上仓库信息」的",
+      "expected": "给出具体可用的 description 文案，且包含触发词（如「查 GitHub」「仓库信息」），说明为什么这样写",
+      "judge": "是否给出可直接粘贴的文本；是否说明触发词设计理由；不是泛泛说「写清楚点」"
+    }
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "skill": "systematic-debugging",
+  "seed": true,
+  "note": "community seed — judge criteria are a starting point, not authority",
+  "cases": [
+    {
+      "id": "sd-10",
+      "input": "我的 Python 脚本本地跑没问题，服务器上报 ModuleNotFoundError，怎么系统地查？",
+      "expected": "给出可执行的排查顺序（依赖清单对比/Python 与 venv 版本/路径/大小写等），而不是直接猜一个原因",
+      "judge": "是否可复现地逐步排错；是否指出如何确认而非只给可能性列表"
+    },
+    {
+      "id": "sd-11",
+      "input": "服务偶发地一天卡死一次，重启就好，日志里看不到报错。这种情况怎么查？",
+      "expected": "提出针对'无日志线索'的排查手段（如采样/转储/资源监控/加埋点复现），明确说明这是可观测性缺失问题",
+      "judge": "是否指出'没日志'本身是问题；是否给出最小改进方案（先加什么埋点）"
+    }
+  ]
+}

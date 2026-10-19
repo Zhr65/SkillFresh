@@ -1,8 +1,8 @@
 {
   "name": "dsh-skill-auditor",
-  "version": "0.6.2",
+  "version": "0.6.3",
   "source": "skill-auditor (upstream engine)",
-  "fileCount": 14,
+  "fileCount": 29,
   "files": [
     {
       "path": "golden/_template.json",
@@ -65,9 +65,84 @@
       "sha256": "974785b8c2728feb20c38cdbc270a1e545f39724db0a5f926060660a23f1870a"
     },
     {
+      "path": "seed/brainstorming.json",
+      "bytes": 572,
+      "sha256": "e6d277f498fb648c05b0a0b5624589c26333948cbd1cc59ac4e3e95da9e4c72c"
+    },
+    {
+      "path": "seed/dispatching-parallel-agents.json",
+      "bytes": 520,
+      "sha256": "2f1f82e4f3c1af68a7bfd712f2d14d80ac12095524ddf391a6a59269f7f51988"
+    },
+    {
+      "path": "seed/executing-plans.json",
+      "bytes": 550,
+      "sha256": "55666c252677800424fc85aa3447901701d0f732dfea82288792df4ee9268ec0"
+    },
+    {
+      "path": "seed/frontend-dev.json",
+      "bytes": 3205,
+      "sha256": "fd1ccecf8b7c0e167fa6485dd7a391150a24250801955a46eaf108c5e0643b4d"
+    },
+    {
+      "path": "seed/github.json",
+      "bytes": 3224,
+      "sha256": "6c0e01f6759c07ace2eef8e198897b11148def120314a641a6bf3d0df7e7874d"
+    },
+    {
+      "path": "seed/humanizer.json",
+      "bytes": 4401,
+      "sha256": "6aca12c9e04d8925cbe6c79161e91892758720f11dda3bd1d988e19838cff6b3"
+    },
+    {
+      "path": "seed/index.json",
+      "bytes": 1082,
+      "sha256": "8fb395c1262df68acaddc940fd68e90c507958690123c07b16639d51ed1e4a16"
+    },
+    {
+      "path": "seed/README.md",
+      "bytes": 3039,
+      "sha256": "f83ce034bbfd054d1b271f660143a5fca4ce626bd45dbdfff3c527e7fa465103"
+    },
+    {
+      "path": "seed/systematic-debugging.json",
+      "bytes": 1008,
+      "sha256": "742c3fe0a1ba3effcf5e333acd11253ac065db18c330078b5374bb6cb283887c"
+    },
+    {
+      "path": "seed/templates/plugin-browser-automation.json",
+      "bytes": 588,
+      "sha256": "0e8ea28470e2c7ab13e7034ff970bca7e7302b1896c883cabd0e668ddbac805d"
+    },
+    {
+      "path": "seed/templates/plugin-memory.json",
+      "bytes": 516,
+      "sha256": "3b7d1f4b9c721adfa98a1a0339ac92ffaaccd970152ef07b563019d47dcc83e3"
+    },
+    {
+      "path": "seed/templates/plugin-model-connector.json",
+      "bytes": 492,
+      "sha256": "80cf6e38ca139d70b6eb0a4376767ee53012eabe93d509d3c9118d7c682c120e"
+    },
+    {
+      "path": "seed/test-driven-development.json",
+      "bytes": 520,
+      "sha256": "8569be434714be9e04725e3fd428cbeca36ae035ddea76784d34d192dcd1d02e"
+    },
+    {
+      "path": "seed/verification-before-completion.json",
+      "bytes": 575,
+      "sha256": "73b23cfb3fd12b7ebc8695b1cdb0e7f2df024de0bb49d09a4f031e93ba492f79"
+    },
+    {
+      "path": "seed/writing-skills.json",
+      "bytes": 3348,
+      "sha256": "4df5a6f7acf4811507ec00e301ff344987a2ec1e03d45e9181f46509b9fcdafe"
+    },
+    {
       "path": "SKILL.md",
       "bytes": 20373,
-      "sha256": "a07680529551297abe89606bf021f6790d65101f5b343de9b7c4b08aefb64e5e"
+      "sha256": "4d16f6e7048b19ee07ab48c8dc4898600bc04d83a59dcf00366e84fd07e34c71"
     },
     {
       "path": "USAGE.md",

@@ -27,7 +27,14 @@ const SRC = path.resolve(NPM_ROOT, '..')
 const DEST = path.join(NPM_ROOT, 'engine')
 
 /** 逐条白名单。目录按 *.ext 过滤，文件原样复制。 */
-const DIRS = [{ rel: 'scripts', ext: ['.py'] }]
+const DIRS = [
+  { rel: 'scripts', ext: ['.py'], skipPrefix: ['test_', 'test-'] },
+  // seed/ = 社区公共 golden：陌生人装完就能 `baseline --from-seed`。
+  // 不带它，新用户连"一条命令跑基线"的路都没有（实测缺陷：市场装的人 seed 为空）。
+  // 收 .json 与 .md；contrib/（未评审的贡献片段）和 _sync_template.py 排除。
+  { rel: 'seed', ext: ['.json', '.md'], skipPrefix: ['_'], skipDirs: ['contrib'] },
+  { rel: 'seed/templates', ext: ['.json'], skipPrefix: ['_'] },
+]
 const FILES = [
   'SKILL.md',
   'USAGE.md',
@@ -76,17 +83,20 @@ function main() {
   const written = []
   const problems = []
 
-  for (const { rel, ext } of DIRS) {
+  for (const { rel, ext, skipPrefix = ['test_', 'test-'], skipDirs = [] } of DIRS) {
     const srcDir = path.join(SRC, rel)
     if (!fs.existsSync(srcDir)) {
+      // seed 缺失是硬错误（新用户靠它起跑）；其它目录缺失也报
       problems.push(`缺少目录 ${rel}`)
       continue
     }
     for (const entry of fs.readdirSync(srcDir)) {
       if (entry.startsWith('__pycache__') || entry.startsWith('.')) continue
-      if (entry.startsWith('test_') || entry.startsWith('test-')) continue   // dev-only tests
+      if (skipDirs.includes(entry)) continue                               // 如 seed/contrib
+      if (skipPrefix.some((p) => entry.startsWith(p))) continue             // dev-only / 模板
       if (!ext.some((e) => entry.endsWith(e))) continue
       const src = path.join(srcDir, entry)
+      if (!fs.statSync(src).isFile()) continue
       const buf = fs.readFileSync(src)
       const text = sanitize(buf.toString('utf8'))
       const dst = path.join(DEST, rel, entry)
