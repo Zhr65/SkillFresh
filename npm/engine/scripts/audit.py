@@ -98,6 +98,24 @@ def load_json(p, default=None):
         return default
 
 
+def live_version(profile_root, name):
+    """实时读已装插件的版本 —— 不信 registry 快照。
+
+    先 profile/node_modules，再回落到 Electron 主包（bundled 插件）。
+    """
+    if not profile_root:
+        return None
+    cands = [os.path.join(profile_root, "node_modules", name, "package.json")]
+    app = os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs", "DSH Desktop",
+                       "resources", "app", "node_modules", name, "package.json")
+    cands.append(app)
+    for p in cands:
+        d = load_json(p)
+        if isinstance(d, dict) and d.get("version"):
+            return d["version"]
+    return None
+
+
 def main(argv):
     host = "deepseek"
     if "--host" in argv:
@@ -134,9 +152,49 @@ def main(argv):
             return 1
         print("扫描完成：%d 个资产\n" % len(reg.get("assets") or {}))
     assets = reg.get("assets") or {}
+    # 关键修正（2026-10-19）：registry 是 scan 时的快照，可能很旧。
+    # 实测事故：registry 停在 10-17，里面记 dsh-workbuddy-connect 0.7.4，
+    # 而 profile 实际已 0.7.8 —— 体检拿旧数据当现状，误报「落后，建议升级」。
+    # 所以这里实时读 node_modules 里的 package.json，覆盖 registry 的 version。
+    stale_versions = []
+    for name, s in assets.items():
+        live = live_version(reg.get("root"), name)
+        if live and s.get("version") and live != s.get("version"):
+            stale_versions.append((name, s["version"], live))
+            s["version"] = live
+        elif live and not s.get("version"):
+            s["version"] = live
     bl = load_json(os.path.join(ROOT, "baseline-results.json"), {"results": []}) or {}
     rows = bl.get("results") or []
     active = reg.get("active_model")
+
+    # registry 过旧就重扫一次：它只是 scan 时的快照，而「装了哪些插件」会变
+    # （实测事故：快照停在 10-17，漏掉 dshmarket、版本也过期）。
+    # 只在超过 1 小时没更新时重扫，避免每次都跑。
+    import datetime as _dt
+    need_rescan = False
+    upd = reg.get("updated_at") or ""
+    try:
+        age_h = (_dt.datetime.now() - _dt.datetime.fromisoformat(upd)).total_seconds() / 3600.0
+        need_rescan = age_h > 1.0
+    except Exception:
+        need_rescan = True
+    if need_rescan and "--no-scan" not in argv:
+        print(f"注册表快照较旧（{upd or '未知'}），先重扫一次…")
+        try:
+            import subprocess
+            rs = subprocess.run(
+                [sys.executable, os.path.join(HERE, "console.py"),
+                 "--host", host, "scan"],
+                capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=180)
+            if rs.returncode == 0:
+                reg = load_json(reg_path) or reg
+                assets = reg.get("assets") or {}
+                active = reg.get("active_model")
+                print("重扫完成：%d 个资产\n" % len(assets))
+        except Exception as e:
+            print(f"[warn] 重扫失败，继续用旧快照：{e}\n")
 
     # 基线统计（只算当前模型的）
     base = {}

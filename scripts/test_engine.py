@@ -1020,5 +1020,36 @@ class AuditTests(unittest.TestCase):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+class AuditVersionTests(unittest.TestCase):
+    """体检版本必须实时读，不能信 registry 快照（曾误报「落后」）。"""
+
+    def setUp(self):
+        sys.path.insert(0, SCRIPTS)
+        import audit
+        self.audit = audit
+        self.tmp = mkdtemp()
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_live_version_reads_profile(self):
+        root = os.path.join(self.tmp, "prof")
+        write_json(os.path.join(root, "node_modules", "plug-x", "package.json"),
+                   {"name": "plug-x", "version": "0.7.8"})
+        self.assertEqual(self.audit.live_version(root, "plug-x"), "0.7.8")
+
+    def test_live_version_missing_returns_none(self):
+        root = os.path.join(self.tmp, "prof2")
+        os.makedirs(root)
+        self.assertIsNone(self.audit.live_version(root, "nope"))
+
+    def test_stale_snapshot_not_trusted(self):
+        """registry 记 0.7.4、实际装 0.7.8 → 必须用 0.7.8，否则会误报升级。"""
+        root = os.path.join(self.tmp, "prof3")
+        write_json(os.path.join(root, "node_modules", "plug-y", "package.json"),
+                   {"name": "plug-y", "version": "0.7.8"})
+        self.assertEqual(self.audit.live_version(root, "plug-y"), "0.7.8")
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
