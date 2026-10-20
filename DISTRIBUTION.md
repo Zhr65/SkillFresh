@@ -180,7 +180,7 @@ npm publish            # 需要 npm 账号；2FA 用 --otp
 # 然后给目录来源提 PR：
 #   · awesome-deepseek-harness-plugins（1024Store 内置市场的数据源）
 #     条目是 catalog/plugins/ 下的一个 JSON 文件，内容已备好：
-#     catalog/awesome-plugin-entry.json（文件名 zhr65--skillfresh--npm.json）
+#     catalog/awesome-plugin-entry.json（文件名 zhr65--dsh-skill-auditor--npm.json）
 #   · 或自建 catalog source（不需要 npm，用 github 固定 commit）
 # 两条路的取舍与已验证据见 PUBLISH.md §2
 ```
@@ -250,20 +250,20 @@ cat ~/.dsh/skill-auditor/.engine.json     # 本机
 - [x] DSH 目录条目（两种通道形态都备好，均通过市场自己的校验器：`catalog/`）
 - [x] github 安装通道实测（pnpm 从固定 commit 装 `path:/npm` → 6 工具注册 → 引擎随包落地）
 - [x] `engine/` 入库 + `check:engine` 防漂移（npm 通道与 github 通道不发生版本分歧）
-- [x] git 仓库（7 次提交，零个人数据；**已推送到 https://github.com/Zhr65/SkillFresh**）
+- [x] git 仓库（7 次提交，零个人数据；**已推送到 https://github.com/Zhr65/dsh-skill-auditor**）
 - [x] 30 秒演示（`demo.py`：沙盒 7 步真跑引擎，几秒；**远端 clone 实测通过**）
 
 ### 仓库已上线
 
 ```
-https://github.com/Zhr65/SkillFresh          # 仓库名 SkillFresh，项目名 skill-auditor
-git@github.com:Zhr65/SkillFresh.git          # SSH 远端
+https://github.com/Zhr65/dsh-skill-auditor          # 仓库名 dsh-skill-auditor，项目名 skill-auditor
+git@github.com:Zhr65/dsh-skill-auditor.git          # SSH 远端
 ```
 
 别人两条命令：
 
 ```bash
-git clone https://github.com/Zhr65/SkillFresh.git && cd SkillFresh
+git clone https://github.com/Zhr65/dsh-skill-auditor.git && cd dsh-skill-auditor
 python demo.py          # 几秒，沙盒，不碰他的数据
 ```
 

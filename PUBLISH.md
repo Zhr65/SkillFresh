@@ -117,8 +117,8 @@ catalogued, listed browse-only」——**能收录，但只能看不能一键装
 | 规则 | 我们的情况 |
 |---|---|
 | 一个插件一个 JSON，放 `catalog/plugins/` | 待新建 |
-| id 三段式 `owner/repo/子目录`（monorepo 用） | `Zhr65/SkillFresh/npm` |
-| 文件名 = 各段小写、非字母数字转 `-`、用 `--` 连 | `zhr65--skillfresh--npm.json` |
+| id 三段式 `owner/repo/子目录`（monorepo 用） | `Zhr65/dsh-skill-auditor/npm` |
+| 文件名 = 各段小写、非字母数字转 `-`、用 `--` 连 | `zhr65--dsh-skill-auditor--npm.json` |
 | 子目录 id 要求 manifest **正好**在 `<子目录>/package.json` | `npm/package.json` ✓ |
 | 只能新增这一个文件，不许碰 README/工作流 | 照做 |
 | `dsh.bundle.patch` 指向的文件必须在同一 revision 里 | `npm/cordis.patch.yml` ✓ |
@@ -139,10 +139,10 @@ catalogued, listed browse-only」——**能收录，但只能看不能一键装
 git clone https://github.com/imsai-sh/awesome-deepseek-harness-plugins.git
 cd awesome-deepseek-harness-plugins
 git checkout -b add-dsh-skill-auditor
-cp /path/to/SkillFresh/catalog/awesome-plugin-entry.json \
-   catalog/plugins/zhr65--skillfresh--npm.json
-git add catalog/plugins/zhr65--skillfresh--npm.json
-git commit -m "feat(catalog): add Zhr65/SkillFresh/npm"
+cp /path/to/dsh-skill-auditor/catalog/awesome-plugin-entry.json \
+   catalog/plugins/zhr65--dsh-skill-auditor--npm.json
+git add catalog/plugins/zhr65--dsh-skill-auditor--npm.json
+git commit -m "feat(catalog): add Zhr65/dsh-skill-auditor/npm"
 git push -u origin add-dsh-skill-auditor
 ```
 
@@ -151,13 +151,13 @@ git push -u origin add-dsh-skill-auditor
 标题：
 
 ```
-feat(catalog): add Zhr65/SkillFresh/npm (dsh-skill-auditor)
+feat(catalog): add Zhr65/dsh-skill-auditor/npm (dsh-skill-auditor)
 ```
 
 正文：
 
 ```markdown
-Adds one new catalog entry for `Zhr65/SkillFresh/npm` (`dsh-skill-auditor`).
+Adds one new catalog entry for `Zhr65/dsh-skill-auditor/npm` (`dsh-skill-auditor`).
 
 **What it does.** Audits installed skills and plugins against the current model.
 Each asset gets a capability fingerprint computed only over its capability
@@ -173,7 +173,7 @@ been edited. Registers six tools (`status`, `recommend`, `check`, `scan`,
 - [x] `npm/package.json` declares `dsh.bundle.patch: "./cordis.patch.yml"`
 - [x] the patch file is committed at the same revision
 - [x] manifest is exactly at `npm/package.json`, matching the id path
-- [x] only `catalog/plugins/zhr65--skillfresh--npm.json` is touched in this PR
+- [x] only `catalog/plugins/zhr65--dsh-skill-auditor--npm.json` is touched in this PR
 - [x] `dsh-plugin` topic added to the repository
 - [ ] npm package published — **not yet**; this entry is expected to be listed
       browse-only until it is
@@ -182,7 +182,7 @@ been edited. Registers six tools (`status`, `recommend`, `check`, `scan`,
 engine is stdlib-only with no third-party dependencies. It ships as a DSH plugin
 (6 tools) and also as a host-neutral skill for WorkBuddy / Claude Code / Codex.
 
-Repository: https://github.com/Zhr65/SkillFresh
+Repository: https://github.com/Zhr65/dsh-skill-auditor
 ```
 
 **④ 等 bot 评论 `Plugin submission review / static-review` 通过** → 自动 squash-merge
@@ -228,7 +228,7 @@ export default {
 |---|---|---|
 | 条目能被市场读 | 直接 import 市场自己的 `parseCatalogProviderPage` | 通过（第一版被拒：`description` 里有换行，`plainText` 禁控制字符；已改） |
 | github 来源能被市场认 | 直接 import 市场的 `createGitHubPackageVerifier`，走真网络取清单 | `{packageName: dsh-skill-auditor, version: 0.5.0, bundlePatch: ./cordis.patch.yml}` |
-| 固定 commit 真能装 | `pnpm add "github:Zhr65/SkillFresh#8f195f0...&path:/npm"` | 19 秒装完，`dsh-skill-auditor 0.4.1`（当时版本） |
+| 固定 commit 真能装 | `pnpm add "github:Zhr65/dsh-skill-auditor#8f195f0...&path:/npm"` | 19 秒装完，`dsh-skill-auditor 0.4.1`（当时版本） |
 | 装完真能跑 | 从安装位置 import 插件、跑 `apply(ctx)` | 注册 6 个工具，`engine/scripts/` 6 个脚本都在 |
 
 第 1 条那个失败很值得记：schema 里 `plainText` 禁止 U+0000–U+001F，**换行也算**。

@@ -1,8 +1,8 @@
 {
   "$schema": "../schema/plugin.schema.json",
-  "id": "Zhr65/SkillFresh/npm",
+  "id": "Zhr65/dsh-skill-auditor/npm",
   "name": "dsh-skill-auditor",
-  "repository": "https://github.com/Zhr65/SkillFresh",
+  "repository": "https://github.com/Zhr65/dsh-skill-auditor",
   "category": "tools",
   "description": {
     "en": "Audits installed skills and plugins against the current model. Each asset gets a capability fingerprint computed only over its capability surface (code and declared tools/commands/dependencies, not README or images), then a golden set is replayed to build a pass-rate matrix. A drop counts as model degradation only when the fingerprint is unchanged; an unchanged pass rate with a changed fingerprint is reported as the asset itself having been edited. Registers nine tools: can, find, status, recommend, check, scan, probe, run and suggest. Runs locally (market lookups are optional), makes no config changes, and needs Python 3.8+.",

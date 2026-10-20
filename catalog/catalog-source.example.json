@@ -1,14 +1,14 @@
 {
   "manifestVersion": "1.0.0",
-  "providerId": "io.github.zhr65.skillfresh",
-  "name": "SkillFresh",
+  "providerId": "io.github.zhr65.dsh-skill-auditor",
+  "name": "dsh-skill-auditor",
   "attribution": {
     "name": "Zhr65",
-    "url": "https://github.com/Zhr65/SkillFresh"
+    "url": "https://github.com/Zhr65/dsh-skill-auditor"
   },
   "transport": {
     "kind": "https-json",
-    "endpoint": "https://skillfresh.example.org/v1/plugins",
+    "endpoint": "https://dsh-skill-auditor.example.org/v1/plugins",
     "method": "GET"
   },
   "query": {

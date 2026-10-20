@@ -1,20 +1,30 @@
 # skill-auditor
 
-**Agent 能力折旧表** — 当模型升级时，告诉你哪些 skill 还灵、哪些退化了、哪些该淘汰；当用户缺能力时，按对话需求推荐 skill/插件。
+**DSH 能力管家** — 说一句话就能用上你装过的插件。
 
-一个零依赖的 WorkBuddy / Claude Code 风格 skill：方法论（SKILL.md）+ 六个 stdlib-only Python 脚本（指纹 / 回归 / 基线 / 常驻控制台 / 安装 / 打包）+ 一个有断言的沙盒演示。
+三件事：
 
-> 仓库名是 **SkillFresh**（skill 保鲜），代码里的项目名仍是 `skill-auditor`，npm 包名 `dsh-skill-auditor`。三者指同一个东西。
+1. **能力路由**（`find` / `can`）— 用户说「帮我记住这个」，工具回答"该调 `hindsight_capture_initiative`"；不用记插件名，也不用知道它暴露了什么。
+2. **主动体检**（`audit`）— 版本落后（对比 npm registry）、运行时故障（读宿主日志）、基线通过率，三面一次出结论。插件装上后 8 秒自动跑。
+3. **能力利用盘点**（`insights`）— 装了 10 个插件只用了 3 个工具？每个"睡觉"的工具都告诉你它是干什么的、怎么唤醒。
+
+底层是**能力折旧表**方法论：版本指纹 + golden set 回归 + 20pp 阈值，把"感觉模型变笨了"变成可复现的判据。
+
+零依赖（纯 Python 标准库），8 个脚本 + 一个 DSH 插件（9 个工具）+ 一个有断言的沙盒演示。
+
+> 仓库名 `dsh-skill-auditor` 与 npm 包名一致，代码里的项目名是 `skill-auditor`。同一件东西的三个叫法。
+>
+> 装法：`npm i -g dsh-skill-auditor` · `dsh plugin --profile web add dsh-skill-auditor` · 或直接 clone 当 skill 用。
 
 ## 30 秒试一下
 
 ```bash
-git clone https://github.com/Zhr65/SkillFresh.git && cd SkillFresh
+git clone https://github.com/Zhr65/dsh-skill-auditor.git && cd dsh-skill-auditor
 python demo.py            # 几秒，全程在 demo/ 沙盒里，不碰你的任何数据
 python demo.py --clean    # 看完删掉
 ```
 
-> HTTPS 走不通就用 SSH：`git clone git@github.com:Zhr65/SkillFresh.git`（需已配 GitHub SSH key）
+> HTTPS 走不通就用 SSH：`git clone git@github.com:Zhr65/dsh-skill-auditor.git`（需已配 GitHub SSH key）
 
 它会在沙盒里造 6 个假 skill，真跑一遍引擎：
 
@@ -63,20 +73,20 @@ python scripts/console.py --host deepseek status                   # 插件折�
 
 **1) 手动复制（最简单）**
 ```bash
-# 用户级（所有项目可用）；clone 下来的目录叫 SkillFresh，要改名为 skill-auditor
-cp -r SkillFresh ~/.workbuddy-ai/skills/skill-auditor
+# 用户级（所有项目可用）；clone 下来的目录叫 dsh-skill-auditor，要改名为 skill-auditor
+cp -r dsh-skill-auditor ~/.workbuddy-ai/skills/skill-auditor
 # 或项目级（仅当前项目）
-cp -r SkillFresh <project>/.workbuddy-ai/skills/skill-auditor
+cp -r dsh-skill-auditor <project>/.workbuddy-ai/skills/skill-auditor
 ```
 
 **2) git clone**
 ```bash
-git clone https://github.com/Zhr65/SkillFresh.git ~/.workbuddy-ai/skills/skill-auditor
+git clone https://github.com/Zhr65/dsh-skill-auditor.git ~/.workbuddy-ai/skills/skill-auditor
 ```
 
 **3) 技能市场**（若已发布）
 ```bash
-npx skills@latest add Zhr65/SkillFresh
+npx skills@latest add Zhr65/dsh-skill-auditor
 ```
 
 > 目录名必须是 `skill-auditor`，且 `SKILL.md` 在其根目录——这是 skill 的加载约定。

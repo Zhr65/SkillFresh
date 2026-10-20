@@ -16,12 +16,12 @@
   "main": "lib/index.js",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Zhr65/SkillFresh.git",
+    "url": "git+https://github.com/Zhr65/dsh-skill-auditor.git",
     "directory": "npm"
   },
-  "homepage": "https://github.com/Zhr65/SkillFresh#readme",
+  "homepage": "https://github.com/Zhr65/dsh-skill-auditor#readme",
   "bugs": {
-    "url": "https://github.com/Zhr65/SkillFresh/issues"
+    "url": "https://github.com/Zhr65/dsh-skill-auditor/issues"
   },
   "exports": {
     ".": "./lib/index.js",
