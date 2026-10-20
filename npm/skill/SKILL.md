@@ -1,7 +1,7 @@
 ---
 name: skill-auditor
 description: 能力折旧表。当用户问「我装的这些 skill/插件是不是过时了」「换模型后哪些能力退化了」「该删哪些、该补哪些」「这个 skill 到底有没有用」时使用。跨宿主（DSH 插件 / WorkBuddy、Claude Code、Codex 的 skill），基于能力指纹 + golden set 回归，而不是凭感觉。
-version: 0.9.2
+version: 1.0.0
 ---
 
 # 能力折旧表（skill-auditor）

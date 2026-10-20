@@ -56,9 +56,25 @@ def scan_tools(plugin_dir):
 
     reasons 说明"靠哪条规则找到的"，便于排查误报。
     """
+    return _scan(plugin_dir)[0], _scan(plugin_dir)[2]
+
+
+def scan_tools_detailed(plugin_dir):
+    """完整扫描：返回 (tool_names, descriptions, reasons)。
+
+    descriptions: {工具名: 一句话用途}——从 register 块的 description 字段
+    或 toolSpecs 附近的 description 字面量抓取。抓不到的键省略。
+    这是「利用率盘点」的原料：用户需要知道每个工具是干什么的。
+    """
+    _names, _reasons, details = _scan(plugin_dir)
+    return _names, details, _reasons
+
+
+def _scan(plugin_dir):
     if not os.path.isdir(plugin_dir):
-        return [], []
+        return [], [], {}
     tools, reasons = set(), []
+    descriptions = {}
 
     # 包名前缀（用于④的相关性判断）：@scope/name-xxx -> name
     base = os.path.basename(plugin_dir.rstrip("/\\"))
@@ -78,8 +94,8 @@ def scan_tools(plugin_dir):
         # ① tools.register({ name: "xxx" }) —— 最可靠的信号
         # 注意 {0,400} 太窄：hindsight 的 register 块里夹着 execute()，name 在很后面。
         # 改成"从 tools.register 起点往后 2000 字符内找第一个 name 字面量"。
-        for m in re.finditer(r"tools(?:\?)?\.register\s*\(", text):
-            seg = text[m.start():m.start() + 2000]
+        for m in re.finditer(r"tools(?:\?)?\.register\s*\(\s*\{", text):
+            seg = text[m.start():m.start() + 2500]
             nm_ = re.search(r"name\s*:\s*['\"]([a-z][a-z0-9_]{4,60})['\"]", seg)
             if nm_:
                 n = nm_.group(1)
@@ -87,6 +103,18 @@ def scan_tools(plugin_dir):
                     tools.add(n)
         if "tools.register" in text:
             reasons.append("tools.register@%s" % os.path.basename(path))
+
+        # ①' 全文级：`"<tool_name>"[,;] description[:=] "<text>"` —— name 与
+        # description 逗号相邻的打包写法（hindsight 等打包产物都是这个形态）。
+        # 已知工具名集合来自前面的结构化匹配；这里补 description（使用场景说明书）。
+        for n in list(tools):
+            if n in descriptions:
+                continue
+            pat = re.compile(
+                r"['\"]" + re.escape(n) + r"['\"]\s*,\s*description\s*[:=]\s*['\"]([^'\"]{10,400})['\"]")
+            d_ = pat.search(text)
+            if d_:
+                descriptions[n] = d_.group(1)[:250]
 
         # ③ toolSpecs 附近的 name 字面量
         i = text.find("toolSpecs")
@@ -105,6 +133,22 @@ def scan_tools(plugin_dir):
                 if IDENT.match(n) and n not in NOISE:
                     tools.add(n)
             reasons.append("tool-names.json@%s" % os.path.basename(path))
+
+        # ①'' 变量桥接形态：`var page = "bsk_page"` + `name: page, description: "..."`
+        # （browser-skill 的 tool-names.json 内联产物）。两步桥接：
+        #   varname -> toolname（var 声明），varname -> description（register 块）。
+        var_map = {}
+        for m in re.finditer(r"var\s+(\w+)\s*=\s*['\"]([a-z][a-z0-9_]{4,60})['\"]", text):
+            vn, tn = m.group(1), m.group(2)
+            if tn in tools:
+                var_map[vn] = tn
+        for vn, tn in var_map.items():
+            if tn in descriptions:
+                continue
+            m = re.search(r"name\s*:\s*" + re.escape(vn) +
+                          r"\s*,\s*description\s*:\s*['\"]([^'\"]{10,400})['\"]", text)
+            if m:
+                descriptions[tn] = m.group(1)[:250]
 
         # ⑤ 关键兜底：**带命名空间前缀的字面量**。
         # 插件常用 `<name>_<action>` 命名（bsk_page / hindsight_reflect），
@@ -148,7 +192,7 @@ def scan_tools(plugin_dir):
         if cands:
             reasons.append("literal@%s" % os.path.basename(path))
 
-    return sorted(tools), reasons
+    return sorted(tools), reasons, descriptions
 
 
 def describe(tool_name):

@@ -559,6 +559,8 @@ def discover_assets(root, manifests, mode="dirs", quiet=False):
             # 每次都重新扫（源码变了工具也会变），但**不参与指纹**——
             # 指纹管"插件变没变"，工具名管"怎么调"，两个维度。
             "tools": _scan_plugin_tools(p),
+            # 工具用途（源码 description 抓的）——利用率盘点的"使用场景说明书"
+            "tool_descriptions": _scan_plugin_tool_descriptions(p),
             "path": os.path.abspath(p),
             "origin": where,     # profile（装进 profile）/ bundled（Electron 主包自带）/ dirs
         })
@@ -577,6 +579,16 @@ def _scan_plugin_tools(p):
     except Exception as e:
         print("[warn] 扫描 %s 工具名失败：%s" % (os.path.basename(p), e), file=sys.stderr)
         return []
+
+
+def _scan_plugin_tool_descriptions(p):
+    """扫插件源码拿每个工具的 description（利用率盘点的说明书）。
+    失败返回空 dict——缺失时 insights 只显示工具名语义，不崩。"""
+    try:
+        import tools_scan
+        return tools_scan.scan_tools_detailed(p)[1]
+    except Exception:
+        return {}
 
 
 def capability_surface(asset_path, manifest_path):
@@ -1560,6 +1572,102 @@ def cmd_audit(args):
     if err:
         print("[stderr]", err)
     return rc
+
+
+def _tool_usage_from_logs(log_paths, tool_names):
+    """从宿主日志统计每个工具的调用次数（审查/利用率盘点数据源）。
+
+    宿主日志形态（实测 DSH desktop-next.log）：
+      ... [info] [host.tools] execute.ok (...) {...}
+    工具名出现在同行的 JSON payload 里。按出现次数粗计——
+    这是「有没有用过」级别的证据，不是精确 telemetry。
+    返回 {工具名: 次数}。
+    """
+    counts = {t: 0 for t in tool_names}
+    if not tool_names:
+        return counts
+    pat = re.compile("|".join(re.escape(t) for t in sorted(tool_names, key=len, reverse=True)))
+    for lp in log_paths[:2]:                       # 最近两份日志足够
+        for line in read_tail(lp):
+            for m in pat.finditer(line):
+                if m.group(0) in counts:
+                    counts[m.group(0)] += 1
+    return counts
+
+
+def cmd_insights(args):
+    """利用率盘点（方便②/用户诉求：插件很强，但用户只用了最显眼的功能）。
+
+    三层回答：
+      ① 用了吗   —— 日志里的调用计数（有没有用过级别的证据）
+      ② 是什么   —— 每个工具的 description（tools_scan 从源码抓的"说明书"）
+      ③ 怎么唤醒 —— 每个没用的工具给一句可直接说的话
+    """
+    host, prof = resolve_host(args)
+    reg = load_registry(host)
+    if not reg:
+        print("[err] registry.%s.json missing — 先 scan" % host)
+        return 1
+    assets = reg_assets(reg)
+    if not assets:
+        print("没有已装资产，无利用率可言。")
+        return 0
+
+    # 收集全部工具名 + 描述
+    all_tools = {}          # tool -> {asset, desc}
+    for name, s in assets.items():
+        if s.get("eliminated"):
+            continue
+        for t in s.get("tools") or []:
+            all_tools[t] = {"asset": name, "desc": (s.get("tool_descriptions") or {}).get(t, "")}
+
+    logs = discover_logs(prof)
+    counts = _tool_usage_from_logs(logs, list(all_tools.keys()))
+
+    used = {t: c for t, c in counts.items() if c > 0}
+    unused = {t: c for t, c in counts.items() if c == 0}
+
+    print(f"\n{'='*66}")
+    print(f"  能力利用盘点 · {host} · {len(assets)} 个资产 · {len(all_tools)} 个工具")
+    print(f"{'='*66}")
+    print(f"  已用工具 {len(used)}/{len(all_tools)}    未动用 {len(unused)}")
+
+    if used:
+        print("\n✓ 你在用的：")
+        for t, c in sorted(used.items(), key=lambda x: -x[1])[:6]:
+            print(f"    {t}  ({c} 次)")
+
+    if unused:
+        print(f"\n💡 还在睡觉的 {len(unused)} 个工具（每条附一句可直接说的话）：")
+        for t in sorted(unused):
+            info = all_tools[t]
+            desc = info["desc"] or describe_tool(t)
+            asset = info["asset"]
+            print(f"\n  · {t}")
+            print(f"    属于 {asset}")
+            print(f"    能干什么：{desc[:110] or '（源码里没抓到描述，试一次就知道了）'}")
+            print(f'    唤醒方式：直接说「用 {asset} 帮我…」或「{describe_tool(t)}一下」')
+    else:
+        print("\n✓ 所有工具都用上了——利用率 100%。")
+
+    print(f"\n{'='*66}")
+    print("口径：调用计数来自宿主日志（最近两份），是「有没有用过」级别的证据；")
+    print("      工具说明抓自插件源码的 description 字段，抓不到时显示工具名语义。")
+    return 0
+
+
+def describe_tool(tool_name):
+    """工具名 → 人话（bsk_page → '页面操作'）。find 的输出也用它。"""
+    parts = [p for p in tool_name.split("_")[1:] if p]  # 去掉插件前缀
+    mapping = {
+        "page": "页面操作", "navigate": "打开网页", "interact": "页面交互",
+        "inspect": "检查页面", "tabs": "标签页", "session": "会话管理",
+        "search": "搜索", "reflect": "深度回顾", "capture": "记录存档",
+        "ingest": "写入记忆", "read": "读取详情", "list": "列出清单",
+        "sync": "同步状态", "diagnose": "诊断", "build": "构建",
+        "ui": "界面生成", "api": "接口调用",
+    }
+    return mapping.get(parts[0] if parts else "", " / ".join(parts) or tool_name)
 
 
 def cmd_probe(args):
@@ -2593,6 +2701,7 @@ def build_parser():
                     help="与 --promote 连用：整体替换基线，而不是按资产合并")
     fd = sub.add_parser("find", help="按功能找资产：「那个查余额的叫啥」")
     fd.add_argument("query", help="功能描述，如「查余额」「记忆」「打开网页」")
+    sub.add_parser("insights", help="能力利用盘点：哪些工具在睡觉、怎么唤醒")
     cn = sub.add_parser("can", help="能力判断：这件事我能不能做（Agent 动手前调用）")
     cn.add_argument("task", help="任务描述，如「做一份季度财报 PPT」")
     cn.add_argument("--market", action="store_true",
@@ -2639,6 +2748,7 @@ def main():
         "report": cmd_report, "suggest": cmd_suggest,
         "can": cmd_can,
         "find": cmd_find,
+        "insights": cmd_insights,
         "discover": cmd_discover, "bootstrap": cmd_bootstrap, "onboard": cmd_onboard,
     }
     if cmd not in table:
