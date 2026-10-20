@@ -1,6 +1,6 @@
 {
   "name": "dsh-skill-auditor",
-  "version": "0.9.1",
+  "version": "0.9.2",
   "source": "skill-auditor (upstream engine)",
   "fileCount": 30,
   "files": [
@@ -26,8 +26,8 @@
     },
     {
       "path": "scripts/audit.py",
-      "bytes": 20675,
-      "sha256": "4ed3f4d4c6bbcc035b0e9aa04a9d75937abec6227cb47de36b5c1a4d45bb1c73"
+      "bytes": 20680,
+      "sha256": "9b763a179577c72d2e69da00bc232da67dee7ed234c9809b66ccf56a1db98c16"
     },
     {
       "path": "scripts/baseline.py",
@@ -41,23 +41,23 @@
     },
     {
       "path": "scripts/console.py",
-      "bytes": 120879,
-      "sha256": "492edcf4036aad8fccf3923103326e8cf1e1161460d670b7390e593c4f86fa7d"
+      "bytes": 121293,
+      "sha256": "6b406f7b21f5440cc4f451cb1f2002c7ede26a91355b57e2da8c753156dc9e9c"
     },
     {
       "path": "scripts/fingerprint.py",
-      "bytes": 5277,
-      "sha256": "e3ca3375ecf8de29c87299ebe7fd185bf434eb8dfbc2defbcb0f836284ed3348"
+      "bytes": 5435,
+      "sha256": "4e4a9d48b4c15b50ed5ab79f24311368d4b9acdc26ea2de74020c7b1255a1d93"
     },
     {
       "path": "scripts/install.py",
-      "bytes": 10387,
-      "sha256": "5d2333cb8fad1e325d1bcd4a19d1f4d5df37d6a2b54bc56d0d81fb2c7bab72d2"
+      "bytes": 10651,
+      "sha256": "b9c7e70a1e29c060b64ea0eb09bbaf66b151a56053285679dd88838756428040"
     },
     {
       "path": "scripts/market.py",
-      "bytes": 10321,
-      "sha256": "e28bbb114a4b03821a244101572eaf042ccd7407974dd8b23e0e7c8adfa2e04b"
+      "bytes": 10551,
+      "sha256": "04b2b16ae4c765cc9c2038e1193476df878d8d222ee141f8c47feb370a3e34e7"
     },
     {
       "path": "scripts/regress.py",
@@ -146,8 +146,8 @@
     },
     {
       "path": "SKILL.md",
-      "bytes": 21800,
-      "sha256": "c22cbe3c83dbd5bafd89298eeb55eeadbae971ee374014d12993e1ae3085e9c5"
+      "bytes": 22704,
+      "sha256": "752a2a0e0bf6d61c1816aaf6cfb2a520cfa448d667163bfaf2e8d841b3f2e28f"
     },
     {
       "path": "USAGE.md",

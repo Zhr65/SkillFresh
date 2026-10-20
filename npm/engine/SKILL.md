@@ -1,7 +1,7 @@
 ---
 name: skill-auditor
 description: "Use when evaluating a skill OR plugin's lifecycle across agents: detecting capability degradation after a model update, judging whether a new skill/plugin is effective and fits the user, or auditing whether to keep/rewrite/retire one. Works in WorkBuddy (skills), DeepSeek harness (plugins), and other hosts via adapters. Triggers: '评测这个 skill', '评测这个插件', '模型升级后 skill 还灵不灵', '新 skill 好不好用', '这个 skill 适合我吗', 'deepseek 插件好不好用', '跨 agent 评估能力', '做个 skill 并按评测流程走'."
-version: 0.9.1
+version: 0.9.2
 allowed-tools:
   - Read
   - Write
@@ -27,11 +27,13 @@ This skill is the **evaluation methodology**. It answers three questions:
 2. **Is a new skill actually good?** — effectiveness vs cost.
 3. **Does a skill fit THIS user?** — trigger accuracy + environment + style.
 
-It ships five executable entry points:
-- `scripts/console.py` — the **resident console** (data layer): maintains `registry.<host>.json` per host, detects model-version changes (`bump`/`check`), and emits the recommend/eliminate panel. See `USAGE.md` for the full command set.
+It ships eight executable entry points:
+- `scripts/console.py` — the **resident console** (data layer): maintains `registry.<host>.json` per host, detects model-version changes (`bump`/`check`), capability routing (`can`/`find`), the one-shot health check (`audit`), and emits the recommend/eliminate panel. See `USAGE.md` for the full command set.
 - `scripts/regress.py` — given golden-set replay results, compute the pass-rate matrix, flag degradation (threshold + direction), and flag `FINGERPRINT-DRIFT` when an asset was edited instead.
 - `scripts/baseline.py` — scaffold a replay checklist, then merge recorded verdicts into `baseline-results.json` (by asset; `--replace` for a full overwrite). Draft golden cases are skipped unless `--allow-draft`.
 - `scripts/fingerprint.py` — standalone **report** CLI; a thin wrapper over the same hashing code `scan` uses. It writes `fingerprint-report.*` only; it does **not** write the registry.
+- `scripts/market.py` — search the two reachable plugin/skill markets (DSH catalog + SkillHub) for real candidates. Ranked by installs + growth + recency, **never stars** (a package's star count belongs to its upstream repo).
+- `scripts/tools_scan.py` — extract the tool names a plugin actually registers, by scanning its source (multiple heuristics, tuned to reject false positives). Feeds the `tools` field in the registry and the capability-routing answers.
 - `scripts/install.py` — install this skill into every agent host on the machine (`~/.workbuddy-ai/skills`, `~/.claude/skills`, `~/.agents/skills`, `~/.dsh/skills`, `~/.codex/skills`). Verifies after installing; never leaves an empty directory behind; never copies personal data.
 
 **Core principle: No measurement without a baseline. Degradation = significant pass-rate drop under an *unchanged* fingerprint — never "feels dumber".**
@@ -258,7 +260,7 @@ Registry stores: skill path, fingerprint, version, golden-set location, model-ve
 - `python scripts/fingerprint.py <assets_dir> [--out <dir>]` → emits `fingerprint-report.json` + a ranked MVP-candidate list (risk heuristic, pending real usage telemetry). Report only; it does not write the registry. Output defaults to the skill root, not the scanned directory.
 - `python scripts/regress.py --results <results.json> [--compare <model>] [--out <dir>]` → emits the pass-rate matrix, degradation flags (threshold + no case improved), and `FINGERPRINT-DRIFT` rows. `--compare` is required when the results file holds more than two models.
 - `python scripts/baseline.py --golden <files...> --from recorded.json [--replace] [--allow-draft]` → scaffold a replay checklist, or merge recorded verdicts into the baseline **by asset** (other assets are kept and reported). `--from-seed` builds a baseline from the bundled community `seed/`, taking only assets actually installed on this machine. Draft/TODO cases are skipped unless `--allow-draft` or `"curated": true`.
-- `python scripts/console.py --host <workbuddy|claude-code|deepseek|agents|generic> {hosts|discover|setup|scan|status|check|bump|stamp|seed|recommend|report|probe|suggest|bootstrap|onboard}` → the host-agnostic resident console. `report --promote` merges a fresh replay into the baseline so the panel sees it; `stamp --infer` tries to infer the model string and **refuses to guess** when it cannot; `seed audit` shows community-seed coverage (and flags index drift), `seed contribute` adds a scrubbed case; `probe` reads host logs; `discover` auto-finds host roots; `bootstrap` drafts golden sets from the user's own history; `onboard` chains discover+scan+bootstrap. `--out` relocates **all** data files. See `USAGE.md`.
+- `python scripts/console.py --host <workbuddy|claude-code|deepseek|agents|generic> {hosts|discover|setup|scan|status|check|bump|stamp|seed|recommend|report|probe|suggest|bootstrap|onboard|can|find|audit}` → the host-agnostic resident console. `can "<task>"` answers "can I do this and is the asset healthy" (exit 0 ok / 2 degraded / 3 missing); `find "<feature>"` matches a feature description to installed assets **and returns the tool names to call** (capability routing); `audit` is the one-shot health check (version vs npm registry + runtime faults from host logs + baseline pass-rate); `report --promote` merges a fresh replay into the baseline so the panel sees it; `stamp --infer` tries to infer the model string and **refuses to guess** when it cannot; `seed audit` shows community-seed coverage (and flags index drift), `seed contribute` adds a scrubbed case; `probe` reads host logs; `discover` auto-finds host roots; `bootstrap` drafts golden sets from the user's own history; `onboard` chains discover+scan+bootstrap. `--out` relocates **all** data files. See `USAGE.md`.
 
 Model-change stamps are per host (`model-version.<host>.json`); the legacy single `model-version.json` is still read as a fallback. `scan` only counts baseline rows whose model equals the active stamp — after a model switch, un-rerun assets go back to `unverified` instead of showing a false green.
 

@@ -19,16 +19,22 @@
 """
 import datetime
 import json
+import os
 import urllib.parse
 import urllib.request
 
 def _ua():
+    """User-Agent 从仓库 _meta.json 读版本（单一真源）。
+    审查 R3：原来这段用了 os 却没 import os，每次必抛 NameError 被
+    except 吞掉，静默兜底成硬编码 0.9.0 —— 正是本项目反对的假绿灯。"""
     try:
-        import json as _j
-        meta = _j.load(open(os.path.join(os.path.dirname(HERE if 'audit' in __file__ else ''), '_meta.json') if False else os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '_meta.json'), encoding='utf-8-sig'))
-        return 'skill-auditor/' + str(meta.get('version') or '0.9.0')
+        here = os.path.dirname(os.path.abspath(__file__))
+        meta_path = os.path.join(os.path.dirname(here), "_meta.json")
+        with open(meta_path, encoding="utf-8-sig") as fh:
+            meta = json.load(fh)
+        return "skill-auditor/" + str(meta.get("version") or "unknown")
     except Exception:
-        return 'skill-auditor/0.9.0'
+        return "skill-auditor/unknown"
 
 UA = {'User-Agent': _ua()}
 DSH_MARKET = "https://deepseek1024.com/api/v2/plugins"

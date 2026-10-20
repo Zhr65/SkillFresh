@@ -39,12 +39,14 @@ except Exception:  # 兜底：console.py 缺失也不崩
     SYM_OK, SYM_UP, SYM_WARN, SYM_TEST = "[ok]", "[up]", "[!]", "[t]"
 
 def _ua():
+    """User-Agent 从仓库 _meta.json 读版本（单一真源，与 market.py 同实现）。"""
     try:
-        import json as _j
-        meta = _j.load(open(os.path.join(os.path.dirname(HERE if 'audit' in __file__ else ''), '_meta.json') if False else os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '_meta.json'), encoding='utf-8-sig'))
-        return 'skill-auditor/' + str(meta.get('version') or '0.9.0')
+        meta_path = os.path.join(os.path.dirname(HERE), "_meta.json")
+        with open(meta_path, encoding="utf-8-sig") as fh:
+            meta = json.load(fh)
+        return "skill-auditor/" + str(meta.get("version") or "unknown")
     except Exception:
-        return 'skill-auditor/0.9.0'
+        return "skill-auditor/unknown"
 
 UA = {'User-Agent': _ua()}
 NPM = "https://registry.npmjs.org/%s/latest"

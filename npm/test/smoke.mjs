@@ -167,6 +167,43 @@ check(
 )
 check(ensureEngine().action === 'unchanged', '升级后再次调用是 unchanged')
 
+// ---------------------------------------------------------------- ⑥ 入口覆盖
+// 复审 R9 硬要求：三个 P0 全是「原有测试覆盖不到入口」才漏出来的。
+// 这里补三条入口级断言，锁住 seed 分发 / baseline --from-seed / 后台体检。
+console.log('\n[6] 入口覆盖（seed 分发 / from-seed / 后台体检）')
+check(
+  fs.existsSync(path.join(dataDir, 'seed', 'index.json')),
+  'ensureEngine 后 DATA_DIR/seed/index.json 存在（复审 R1/P0-2 回归锁）',
+)
+// 从数据目录的引擎副本真跑一次 console seed 命令（隔离环境，exit 0 且有用例）
+let seeded = null
+{
+  const { execFile } = await import('node:child_process')
+  const r = await new Promise((resolve) => {
+    const c = execFile('python', [consolePy, '--host', 'mine', 'seed'], { timeout: 60000 },
+      (err, stdout) => resolve({ code: err ? 1 : 0, out: String(stdout ?? '') }))
+    c.on('error', () => {})
+  })
+  if (r.code === 0 && /seed|用例/i.test(r.out)) seeded = r
+}
+check(!!seeded, '从安装副本跑 console seed 退出码 0 且有用例输出', seeded ? seeded.out.slice(0, 80) : '无输出')
+// 后台体检能拿到非空 stdout（复审 P0-3 回归锁：background 分支不许再丢输出）。
+// 用 hosts 命令——它不依赖 registry 存在（隔离环境没有 registry.mine.json）。
+let bgLen = 0
+{
+  const { runConsole } = await import('../lib/engine.mjs')
+  await new Promise((resolve) => {
+    let done = false
+    const finish = () => { if (!done) { done = true; resolve() } }
+    runConsole(['--host', 'mine', 'hosts'], {
+      timeout: 60000, background: true,
+      onDone(res) { bgLen = String(res.stdout || '').length; finish() },
+    })
+    setTimeout(finish, 90000)   // 兜底：不回来也不挂死
+  })
+}
+check(bgLen > 100, `background+onDone 拿到非空 stdout（${bgLen} 字节）`)
+
 // ---------------------------------------------------------------- 结果
 // Windows 上子进程 cwd 曾在 TMP 内、句柄未释放会 EBUSY（审查 P2）：
 // 清理失败不算测试失败——打印提示，进程正常退出。

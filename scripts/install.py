@@ -68,13 +68,16 @@ HOSTS = [
 # 审查 P0-1：ignore_patterns 只匹配 basename，"golden/*.json" 这种带路径分隔符的
 # 模式永远不会命中——用户的真实 golden（含 prompt 与判定记录）曾被原样复制到
 # 其他宿主目录。改为排除整个 golden/ 目录（_template.json 由 ensure_template 补回）。
+# 复审 R1 修正：seed 是随包公共内容（console.py:47-49 明确它跟着 AUDITOR 走），
+# **不能**排除——上次修 P0-1 时误把 seed 一起排了，skill 路径失去 baseline --from-seed。
+# 未评审的贡献片段单独排除（seed/contrib）。
 IGNORE = shutil.ignore_patterns(
     "dist", "_archive", "__pycache__", ".git", "*.pyc",
     "registry*.json", "baseline-results.json", "baseline-scaffold.json",
     "model-version*.json", "recorded-*.json", "hosts.json",
     "depreciation-report.*", "fingerprint-report.*", "replay", "demo",
     "golden",           # 整个目录排除（原 "golden/*.json" 是无效模式）
-    "seed",             # seed 是随 npm 包分发的公共内容，宿主 skill 目录不需要
+    "seed/contrib",     # 只排未评审片段，seed 本体必须随装（复审 R1）
     "backups",          # registry 备份（0.9.0 起生成）也是个人数据
 )
 

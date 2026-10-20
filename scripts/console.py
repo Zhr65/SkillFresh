@@ -1029,14 +1029,19 @@ def seed_audit_consistency():
 def seed_scrub(text):
     """贡献前机械脱敏：用户名/绝对路径/会话目录/xwechat 账号。
     只兜已知模式，判断不了"业务描述能不能公开"——README 已声明。
-    审查 P2：原来只覆盖 Windows 路径，macOS /Users/<name> 与 Linux /home/<name>
+    审查 P2：原来只覆盖 Windows 路径，macOS 与 Linux 的 home 绝对路径
     原样穿过（与 sync-engine.mjs 的 sanitize 对齐）。"""
     s = text or ""
     s = re.sub(r"c-Users-[A-Za-z0-9]+-.*?(\d{4}-\d{2}-\d{2})", r"session:\1", s)
     s = re.sub(r"[A-Za-z]:[\\/][Uu]sers[\\/][^\\/\s\"']+", "<home>", s)
-    # macOS / Linux home 目录（与 Windows 同等对待）
-    s = re.sub(r"(?<![\w])[Uu]sers[\\/][^\\/\s\"']+", "<home>", s)
-    s = re.sub(r"(?<![\w])[Hh]ome[\\/][^\\/\s\"']+", "<home>", s)
+    # macOS / Linux home 目录。复审 R7：必须要求前导斜杠——否则
+    # "home/office 场景"、"users/admin 文档" 这类正常文本被静默篡改成 <home>。
+    # 真实绝对路径一定带斜杠（macOS 用户目录 / Linux 用户目录两种形态）。
+    s = re.sub(r"/[Uu]sers/[^/\s\"']+", lambda m: "<home>/", s)
+    s = re.sub(r"/[Hh]ome/[^/\s\"']+", lambda m: "<home>/", s)
+    s = re.sub(r"/<home>//", "<home>/", s)   # 收敛双斜杠
+    s = re.sub(r"\\[Uu]sers\\[^\\\s\"']+", lambda m: "<home>", s)
+    s = re.sub(r"\\[Hh]ome\\[^\\\s\"']+", lambda m: "<home>", s)
     # 字面量运行时拼接：让脱敏规则自身不被"本机用户名"禁词扫描器误判成泄漏
     _me = "z" + "hr15"
     s = s.replace(_me, "<user>")

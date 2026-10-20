@@ -55,7 +55,7 @@ def main():
         if not os.path.isfile(manifest):
             continue
         meta = parse_manifest(manifest)
-        fp, nfiles = fingerprint_asset(p)
+        fp, nfiles, unreadable = fingerprint_asset(p)
         with open(manifest, encoding="utf-8") as fh:
             lines = fh.read().count("\n") + 1
         scripts = has_scripts(p)
@@ -63,7 +63,7 @@ def main():
             "skill": name,
             "fingerprint": fp,
             "version": meta.get("version", "-"),
-            "files": nfiles,
+            "files": nfiles, "unreadable": unreadable,
             "lines": lines,
             "tool_deps": meta.get("tool_deps", 0),
             "has_scripts": scripts,

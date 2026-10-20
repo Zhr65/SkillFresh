@@ -163,8 +163,8 @@ npm/
 
 **本机已验证（不是推测）：**
 
-- `npm pack` → 21 个文件 / 44 kB，不含 registry、基线、个人 golden set、构建脚本、测试
-- `npm install <tgz>` 到干净目录 → 从安装位置 import → 注册 6 个工具 → 真跑引擎出折旧表（3 个真实插件）
+- `npm pack` → **40 个文件 / ~122 kB**（2026-10-20 `npm pack --dry-run` 实测；engine/ 镜像进包后比早期版本翻倍——数字以后以 `npm pack --dry-run` 实际输出为准，别抄文档），不含 registry、基线、个人 golden set、构建脚本、测试
+- `npm install <tgz>` 到干净目录 → 从安装位置 import → 注册 **9 个工具** → 真跑引擎出折旧表（3 个真实插件）
 - `prepack` 自动同步引擎，且**路径脱敏**（本机 Python 路径 → `python`）+ 禁用词扫描（命中即发布失败）
 
 **发布三步（详细版含 2FA、版本四处同步、固定动作清单 → 见 `PUBLISH.md`）：**
