@@ -1,7 +1,7 @@
 ---
 name: skill-auditor
 description: 能力折旧表。当用户问「我装的这些 skill/插件是不是过时了」「换模型后哪些能力退化了」「该删哪些、该补哪些」「这个 skill 到底有没有用」时使用。跨宿主（DSH 插件 / WorkBuddy、Claude Code、Codex 的 skill），基于能力指纹 + golden set 回归，而不是凭感觉。
-version: 0.9.0
+version: 0.9.1
 ---
 
 # 能力折旧表（skill-auditor）
@@ -21,7 +21,7 @@ version: 0.9.0
 插件已注册工具时，直接用工具（这是首选）：
 
 - `skill_audit_status` — 折旧表：指纹 / 基线通过率 / risk / 判定
-- `skill_audit_recommend` — 强 / 观察 / 未验证 / 已降级 / 可选精简，五档
+- `skill_audit_recommend` — 强 / 观察 / 未验证 / 跑不起来·环境问题 / 已降级 / 可选精简，六档
 - `skill_audit_check` — 当前模型相对上次回归基线是否变了
 - `skill_audit_scan` — 装了新东西之后重新发现资产
 - `skill_audit_suggest` — 用户的需求没有资产能覆盖时，该补什么

@@ -38,7 +38,15 @@ try:
 except Exception:  # 兜底：console.py 缺失也不崩
     SYM_OK, SYM_UP, SYM_WARN, SYM_TEST = "[ok]", "[up]", "[!]", "[t]"
 
-UA = {"User-Agent": "skill-auditor/0.5.0"}
+def _ua():
+    try:
+        import json as _j
+        meta = _j.load(open(os.path.join(os.path.dirname(HERE if 'audit' in __file__ else ''), '_meta.json') if False else os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '_meta.json'), encoding='utf-8-sig'))
+        return 'skill-auditor/' + str(meta.get('version') or '0.9.0')
+    except Exception:
+        return 'skill-auditor/0.9.0'
+
+UA = {'User-Agent': _ua()}
 NPM = "https://registry.npmjs.org/%s/latest"
 DSH_MARKET = "https://deepseek1024.com/api/v2/plugins?limit=200"
 

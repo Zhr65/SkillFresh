@@ -135,7 +135,7 @@ DSH **有内置插件市场**（`dsh-community-market`），路径：**设置 �
 
 ```
 npm/
-├── package.json          # name=dsh-skill-auditor, version=0.5.0（稳定版）
+├── package.json          # name=dsh-skill-auditor, version=以 package.json 为准（稳定版）
 │                         # "dsh": { "bundle": { "patch": "./cordis.patch.yml" } }
 ├── cordis.patch.yml      # - insert: [{ id: skill-auditor, name: dsh-skill-auditor }]
 ├── plugin.json           # skills: ./skill（宿主能把它当 skill 加载）
@@ -158,7 +158,7 @@ npm/
 |---|---|
 | 唯一合法 npm 包名 | `dsh-skill-auditor` — `npm view` 返回 404，未被占用 ✓ |
 | 非 Desktop 自有 bundle | 不是 `dsh-plugin-desktop*` / `dsh-community-market` ✓ |
-| `registry.npmjs.org/<pkg>/latest` 同名 + 精确稳定版本 | 待发布；`version` 已是 `0.5.0`，无 prerelease 后缀 ✓ |
+| `registry.npmjs.org/<pkg>/latest` 同名 + 精确稳定版本 | 待发布；`version` 以 package.json 为准，无 prerelease 后缀 ✓ |
 | manifest 声明安全相对路径 `dsh.bundle.patch` | `./cordis.patch.yml` ✓ |
 
 **本机已验证（不是推测）：**
@@ -172,7 +172,7 @@ npm/
 ```bash
 cd npm
 npm run check:engine   # 引擎与上游一致（github 通道与 npm 通道不发生分歧）
-npm run test           # 冒烟 + 全链路（当前 44 项全过）
+npm run test           # 冒烟 + 全链路（全部断言）
 npm publish            # 需要 npm 账号；2FA 用 --otp
 ```
 
@@ -186,7 +186,7 @@ npm publish            # 需要 npm 账号；2FA 用 --otp
 ```
 
 ```bash
-# 最后在市场里验：搜索 → 详情（安装 preview 显示 0.5.0）→ 安装 → 完全退出重开
+# 最后在市场里验：搜索 → 详情（安装 preview 显示当前版本）→ 安装 → 完全退出重开
 ```
 
 > 桌面端装完若没出现，完全退出（含托盘）再打开。
@@ -238,11 +238,11 @@ cat ~/.dsh/skill-auditor/.engine.json     # 本机
 ## 6. 发布清单
 
 - [x] LICENSE（MIT）
-- [x] 干净分发包（14 文件，零个人数据）
+- [x] 干净分发包（30+ 文件，零个人数据；以 build_dist.py 实际输出为准）
 - [x] 安装说明（本文档）
 - [x] 跨宿主安装器（`scripts/install.py`）
 - [x] npm 包骨架（`npm/`，pack → install → run 全链路已验证）
-- [x] 插件冒烟测试（44 项断言，`npm run test`）
+- [x] 插件冒烟测试（全部断言，`npm run test`）
 - [x] SkillHub `_meta.json`（照本机市场安装的真实样例补：`slug/title/version/author/runtime/emoji/color/tags/description_zh/description_en/category`，`category` 取自市场 API 实际枚举 `ai-agent`）
 - [ ] `npm publish`（要你的 npm 账号；命令与注意事项 → `PUBLISH.md §1`）
 - [ ] 目录来源 PR（条目已按对方 schema 写好并逐字段验过 → `catalog/awesome-plugin-entry.json`；步骤与 PR 文案 → `PUBLISH.md §2.3`）
@@ -267,7 +267,7 @@ git clone https://github.com/Zhr65/SkillFresh.git && cd SkillFresh
 python demo.py          # 几秒，沙盒，不碰他的数据
 ```
 
-**从远端 clone 实测**（不是推测）：`demo.py` 7 步全过、`npm test` 44 项全过。
+**从远端 clone 实测**（不是推测）：`demo.py` 7 步全过、`npm test` 全部断言通过。
 
 这个验证抓到过两个真问题，都已修：
 1. `npm/engine/` 在 gitignore 里，`prepack` 只在 pack/publish 时跑 → 新 clone 里 `npm test` 连锁失败 30 条 → 补 `pretest` 自动同步

@@ -22,7 +22,15 @@ import json
 import urllib.parse
 import urllib.request
 
-UA = {"User-Agent": "skill-auditor/0.5.0"}
+def _ua():
+    try:
+        import json as _j
+        meta = _j.load(open(os.path.join(os.path.dirname(HERE if 'audit' in __file__ else ''), '_meta.json') if False else os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '_meta.json'), encoding='utf-8-sig'))
+        return 'skill-auditor/' + str(meta.get('version') or '0.9.0')
+    except Exception:
+        return 'skill-auditor/0.9.0'
+
+UA = {'User-Agent': _ua()}
 DSH_MARKET = "https://deepseek1024.com/api/v2/plugins"
 SKILLHUB_SEARCH = "https://lightmake.site/api/v1/search?q=%s&limit=%d"
 TIMEOUT = 20
@@ -83,11 +91,14 @@ def search_dsh(term, limit=8, scan=300):
     items = []
     scanned = 0
     server_err = None
+    meta_src = {}   # 最后一次成功响应的元数据（total/generatedAt/source）
     # ① 服务端定向搜索（快、全）
     try:
         data = _fetch(DSH_MARKET + "?q=%s&limit=%d" % (urllib.parse.quote(t), 100))
         items = data.get("plugins") or []
         scanned = len(items)
+        meta_src = {"total": data.get("total"), "generatedAt": data.get("generatedAt"),
+                    "source": data.get("source")}
     except Exception as e:
         # 诚实边界：服务端搜索失败必须保留错误信息，不能吞掉假装"没结果"
         server_err = str(e)[:80]
@@ -103,6 +114,8 @@ def search_dsh(term, limit=8, scan=300):
             if not batch:
                 break
             scanned += len(batch)
+            meta_src = {"total": data.get("total"), "generatedAt": data.get("generatedAt"),
+                        "source": data.get("source")}
             for p in batch:
                 n = p.get("name")
                 if n not in seen and (t in (n or "").lower()
@@ -112,9 +125,9 @@ def search_dsh(term, limit=8, scan=300):
                     seen.add(n)
             if len(items) >= limit * 3:
                 break
-    meta = {"total": data.get("total") if 'data' in dir() else None,
-            "generatedAt": (data.get("generatedAt") if 'data' in dir() else None),
-            "source": data.get("source") if 'data' in dir() else None,
+    meta = {"total": meta_src.get("total"),
+            "generatedAt": meta_src.get("generatedAt"),
+            "source": meta_src.get("source"),
             "scanned": scanned,
             "server_error": server_err}
     # 全部通道失败（服务端 + 分页兜底都没拿到）→ 必须如实报，不假装"没结果"

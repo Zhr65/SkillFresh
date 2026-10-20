@@ -168,7 +168,13 @@ check(
 check(ensureEngine().action === 'unchanged', '升级后再次调用是 unchanged')
 
 // ---------------------------------------------------------------- 结果
-fs.rmSync(TMP, { recursive: true, force: true })
+// Windows 上子进程 cwd 曾在 TMP 内、句柄未释放会 EBUSY（审查 P2）：
+// 清理失败不算测试失败——打印提示，进程正常退出。
+try {
+  fs.rmSync(TMP, { recursive: true, force: true })
+} catch {
+  console.log(`（临时目录未能清理，可手动删除：${TMP}）`)
+}
 
 console.log('')
 if (failures.length) {

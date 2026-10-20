@@ -149,7 +149,10 @@ def _fp_skip(rel_parts, filename):
 
 
 def fingerprint_asset(path):
+    """审查 P2：一个不可读/被占用的文件曾让整个 scan/can/find/audit 崩掉。
+    现在跳过并计数，结果里带 unreadable 数（调用方一并报告，不静默）。"""
     files = []
+    unreadable = 0
     for root, dirs, fs in os.walk(path):
         rel_root = os.path.relpath(root, path)
         rel_parts = [] if rel_root == "." else rel_root.split(os.sep)
@@ -164,11 +167,15 @@ def fingerprint_asset(path):
     files.sort()
     h = hashlib.sha256()
     for f in files:
-        with open(f, "rb") as fh:
-            h.update(fh.read())
+        try:
+            with open(f, "rb") as fh:
+                h.update(fh.read())
+        except OSError:
+            unreadable += 1
+            continue
     for f in files:
         h.update(os.path.relpath(f, path).encode("utf-8"))
-    return h.hexdigest()[:16], len(files)
+    return h.hexdigest()[:16], len(files), unreadable
 
 RISK_LOW = 100
 RISK_HIGH = 120
@@ -520,7 +527,9 @@ def discover_assets(root, manifests, mode="dirs", quiet=False):
                 break
         if not manifest:
             continue
-        fp, nfiles = fingerprint_asset(p)
+        fp, nfiles, unreadable = fingerprint_asset(p)
+        if unreadable:
+            print(f"[warn] {name}: {unreadable} 个文件不可读（已跳过，不影响指纹结构）")
         meta = parse_manifest(manifest)
         try:
             lines = open(manifest, encoding="utf-8").read().count("\n") + 1
@@ -557,11 +566,16 @@ def discover_assets(root, manifests, mode="dirs", quiet=False):
 
 
 def _scan_plugin_tools(p):
-    """扫插件源码拿它注册的工具名。失败返回空列表（不崩、不伪造）。"""
+    """扫插件源码拿它注册的工具名。失败打印警告到 stderr——静默吞掉曾让
+    dist 包缺 tools_scan.py 时 find 假装正常（审查 P1-1）。"""
     try:
         import tools_scan
         return tools_scan.scan_tools(p)[0]
-    except Exception:
+    except ImportError as e:
+        print("[warn] tools_scan 不可用（%s）——工具名单将缺失" % e, file=sys.stderr)
+        return []
+    except Exception as e:
+        print("[warn] 扫描 %s 工具名失败：%s" % (os.path.basename(p), e), file=sys.stderr)
         return []
 
 
@@ -1014,10 +1028,15 @@ def seed_audit_consistency():
 
 def seed_scrub(text):
     """贡献前机械脱敏：用户名/绝对路径/会话目录/xwechat 账号。
-    只兜已知模式，判断不了"业务描述能不能公开"——README 已声明。"""
+    只兜已知模式，判断不了"业务描述能不能公开"——README 已声明。
+    审查 P2：原来只覆盖 Windows 路径，macOS /Users/<name> 与 Linux /home/<name>
+    原样穿过（与 sync-engine.mjs 的 sanitize 对齐）。"""
     s = text or ""
     s = re.sub(r"c-Users-[A-Za-z0-9]+-.*?(\d{4}-\d{2}-\d{2})", r"session:\1", s)
     s = re.sub(r"[A-Za-z]:[\\/][Uu]sers[\\/][^\\/\s\"']+", "<home>", s)
+    # macOS / Linux home 目录（与 Windows 同等对待）
+    s = re.sub(r"(?<![\w])[Uu]sers[\\/][^\\/\s\"']+", "<home>", s)
+    s = re.sub(r"(?<![\w])[Hh]ome[\\/][^\\/\s\"']+", "<home>", s)
     # 字面量运行时拼接：让脱敏规则自身不被"本机用户名"禁词扫描器误判成泄漏
     _me = "z" + "hr15"
     s = s.replace(_me, "<user>")
@@ -1931,11 +1950,9 @@ def cmd_find(args):
                 for m in re.finditer(r"[\u4e00-\u9fff]+|[a-z0-9]+", chunk):
                     seg = m.group(0)
                     if cjk(seg[0]):
-                        if len(seg) == 1:
-                            if seg not in stop and len(seg) >= 2:
-                                toks.append(seg)
-                        else:
-                            toks.extend(seg[i:i + 2] for i in range(len(seg) - 1))
+                        # 单字 CJK token 无法通过二元切分，且 len>=2 恒假——
+                        # 审查确认这是死分支，删掉（二元切分天然覆盖所有相邻字对）
+                        toks.extend(seg[i:i + 2] for i in range(len(seg) - 1))
                     else:
                         if len(seg) >= 3 and seg not in stop:
                             toks.append(seg)

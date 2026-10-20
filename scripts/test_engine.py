@@ -95,16 +95,16 @@ class FingerprintTests(unittest.TestCase):
 
     def test_readme_is_not_capability(self):
         d = make_skill(self.tmp)
-        fp1, _ = console.fingerprint_asset(d)
+        fp1, _, _ = console.fingerprint_asset(d)
         write(os.path.join(d, "README.md"), "completely different docs")
-        fp2, _ = console.fingerprint_asset(d)
+        fp2, _, _ = console.fingerprint_asset(d)
         self.assertEqual(fp1, fp2, "README 改动不应改变能力指纹")
 
     def test_code_is_capability(self):
         d = make_skill(self.tmp)
-        fp1, _ = console.fingerprint_asset(d)
+        fp1, _, _ = console.fingerprint_asset(d)
         write(os.path.join(d, "tool.py"), "print('changed behaviour')")
-        fp2, _ = console.fingerprint_asset(d)
+        fp2, _, _ = console.fingerprint_asset(d)
         self.assertNotEqual(fp1, fp2, "脚本改动必须改变能力指纹")
 
 

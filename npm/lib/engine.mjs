@@ -30,8 +30,10 @@ export const DSH_HOME = process.env.DSH_HOME || path.join(os.homedir(), '.dsh')
 export const DATA_DIR =
   process.env.SKILL_AUDITOR_HOME || path.join(DSH_HOME, 'skill-auditor')
 
-/** 引擎里会被复制到数据目录的条目（白名单，逐条列举，不递归整个包）。 */
-const ENGINE_DIRS = ['scripts']
+/** 引擎里会被复制到数据目录的条目（白名单，逐条列举，不递归整个包）。
+ *  审查 P0-2：原来只有 'scripts'，DSH 用户跑 baseline --from-seed / seed audit
+ *  报"没有 seed/ 目录"——console.py 的 SEED_DIR 指向数据目录下的 seed。 */
+const ENGINE_DIRS = ['scripts', 'seed']
 const ENGINE_FILES = [
   'SKILL.md',
   'USAGE.md',
@@ -40,8 +42,8 @@ const ENGINE_FILES = [
   'hosts.example.json',
   'golden/_template.json',
 ]
-/** 引擎代码：每次升级都覆盖。 */
-const CODE_DIRS = new Set(['scripts'])
+/** 引擎代码：每次升级都覆盖（seed 属公共内容，升级应覆盖，与用户数据区分）。 */
+const CODE_DIRS = new Set(['scripts', 'seed'])
 /** 只在缺失时补齐（可能是用户改过的文件）。 */
 const SEED_ONLY = new Set(['golden/_template.json'])
 
@@ -268,13 +270,24 @@ export async function runConsole(argv, opts = {}) {
   // 实现：后台路径用 execFileAsync（原有 Promise 封装）但传入 unref 选项；
   // 前台路径沿用 execFileAsync —— 简单可靠，不用 ChildProcess 内部 API。
   if (opts.background) {
-    // 后台：不等待结果，触发后立即返回（错误只记日志由调用方兜底）
+    // 后台：立即返回，但**收集 stdout 并在 close 时回调 onDone**。
+    // 审查 P0-3：原来 background 分支返回恒空 stdout，runStartupAudit 拿到空串
+    // 就早退——last-audit.txt 永远写不出来（死功能）。
     const child = execFile(py.cmd, [...py.pre, script, ...argv], {
       cwd: DATA_DIR,
       timeout: opts.timeout ?? 180000,
       maxBuffer: 16 * 1024 * 1024,
       windowsHide: true,
       env: { ...process.env, PYTHONIOENCODING: 'utf-8', PYTHONUTF8: '1' },
+    }, (err, stdout, stderr) => {
+      if (typeof opts.onDone === 'function') {
+        opts.onDone({
+          code: err ? (typeof err.code === 'number' ? err.code : 1) : 0,
+          killed: !!(err && err.killed),
+          stdout: String(stdout ?? ''),
+          stderr: String(stderr ?? '') + (err && err.code === 'ENOENT' ? `ENOENT: ${cmd}` : ''),
+        })
+      }
     })
     child.unref?.()
     child.on('error', () => {})   // 防未处理 error 事件崩宿主

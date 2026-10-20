@@ -270,32 +270,46 @@ export function apply(ctx) {
  *  审查 P1：timer 与子进程都 unref —— 宿主自然退出不被拖住（原来挂到 audit
  *  结束最长 ~2 分钟）；宿主强制退出时 Python 子进程随之释放（不再孤儿化）。 */
 function runStartupAudit(ctx) {
-  const timer = setTimeout(async () => {
+  // 审查 P0-3：background 分支原来返回恒空 stdout，写文件逻辑永远早退
+  // （last-audit.txt 是死功能）。现在把处理逻辑放进 onDone 回调，
+  // 由 engine.mjs 的 close 事件回传真实 stdout。
+  const timer = setTimeout(() => {
     try {
       ensureEngine()
-      const res = await runConsole(['--host', defaultHost(), 'audit'],
-                                   { timeout: 120000, background: true })
-      const text = String(res.stdout || '')
-      if (!text.trim()) return
-      try {
-        const fs = await import('node:fs')
-        const path = await import('node:path')
-        const { DATA_DIR } = await import('./engine.mjs')
-        fs.writeFileSync(path.join(DATA_DIR, 'last-audit.txt'), text, 'utf8')
-      } catch {}
-      const needsAction = /🔴|⬆️/.test(text)
-      // 「查不了」不能说成「没问题」。下面三种情况都是"没数据"，必须单独说。
-      const blind = []
-      if (/版本面没查到任何数据/.test(text)) blind.push('版本不可查')
-      if (/没有可读日志/.test(text)) blind.push('无日志')
-      if (/全都没有基线/.test(text)) blind.push('无基线')
-      const summary = (text.match(/🔴[^\n]*|⬆️[^\n]*|✅[^\n]*/g) || []).join(' / ')
-      const label = needsAction
-        ? '有待处理项'
-        : (blind.length ? `结论不完整（${blind.join('/')}）` : '未发现异常')
-      ctx.logger?.[needsAction ? 'warn' : (blind.length ? 'info' : 'info')]?.(
-        `${PLUGIN_NAME}: 启动体检 ${label} — ${summary || '详见 last-audit.txt'}`,
-      )
+      runConsole(['--host', defaultHost(), 'audit'], {
+        timeout: 120000,
+        background: true,
+        onDone(res) {
+          try {
+            const text = String(res.stdout || '')
+            if (!text.trim()) {
+              ctx.logger?.info?.(`${PLUGIN_NAME}: 启动体检无输出（exit ${res.code}）`)
+              return
+            }
+            Promise.all([
+              import('node:fs'),
+              import('node:path'),
+              import('./engine.mjs'),
+            ]).then(([fs, path, eng]) => {
+              fs.writeFileSync(path.join(eng.DATA_DIR, 'last-audit.txt'), text, 'utf8')
+            }).catch(() => {})
+            const needsAction = /🔴|⬆️/.test(text)
+            const blind = []
+            if (/版本面没查到任何数据/.test(text)) blind.push('版本不可查')
+            if (/没有可读日志/.test(text)) blind.push('无日志')
+            if (/全都没有基线/.test(text)) blind.push('无基线')
+            const summary = (text.match(/🔴[^\n]*|⬆️[^\n]*|✅[^\n]*/g) || []).join(' / ')
+            const label = needsAction
+              ? '有待处理项'
+              : (blind.length ? `结论不完整（${blind.join('/')}）` : '未发现异常')
+            ctx.logger?.[needsAction ? 'warn' : 'info']?.(
+              `${PLUGIN_NAME}: 启动体检 ${label} — ${summary || '详见 last-audit.txt'}`,
+            )
+          } catch (err) {
+            ctx.logger?.info?.(`${PLUGIN_NAME}: 启动体检结果处理失败（${err && err.message}）`)
+          }
+        },
+      })
     } catch (err) {
       ctx.logger?.info?.(`${PLUGIN_NAME}: 启动体检跳过（${err && err.message}）`)
     }

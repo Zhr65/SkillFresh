@@ -7,7 +7,7 @@
 
 | 事项 | 我之前说卡在哪 | 实际卡点 | 现在的状态 |
 |---|---|---|---|
-| `npm publish` | 你的 npm 账号 + 2FA | 就是这个，绕不过 | 命令一条，`npm test` 44 项已过 |
+| `npm publish` | 你的 npm 账号 + 2FA | 就是这个，绕不过 | 命令一条，`npm test` 全部断言已过 |
 | 进 DSH 市场 | 「得先有 npm 包」 | **一半对**：内置市场只认 npm；但自建目录来源可以走 github 固定 commit，不需要 npm | 条目已写好，已过市场自己的校验器 |
 | WorkBuddy SkillHub | 走市场发布流程 | 缺的是「提交入口在哪」这个确认，不是能力 | `_meta.json` + 打包脚本就绪 |
 
@@ -25,7 +25,7 @@ npm publish --dry-run          # 先看会传哪些文件（这一步就会跑 p
 npm publish                    # 若账号是 auth-only 2FA：npm publish --otp=123456
 ```
 
-期望输出末行：`+ dsh-skill-auditor@0.5.0`
+期望输出末行：`+ dsh-skill-auditor@<版本号>`
 
 `npm publish` 会触发 `prepack` → `scripts/sync-engine.mjs`，把上游引擎白名单复制进
 `engine/`、脱敏本机路径、扫禁用词。命中禁用词会**直接失败**，这是设计，不是 bug。
@@ -33,7 +33,7 @@ npm publish                    # 若账号是 auth-only 2FA：npm publish --otp=
 ### 1.2 发完立刻验三件事
 
 ```bash
-npm view dsh-skill-auditor version          # → 0.5.0
+npm view dsh-skill-auditor version          # → 当前版本（以 package.json 为准）
 npm view dsh-skill-auditor dist.tarball     # → https://registry.npmjs.org/.../-/dsh-skill-auditor-0.5.0.tgz
 npm view dsh-skill-auditor dsh              # → { bundle: { patch: './cordis.patch.yml' } }
 ```
@@ -66,8 +66,8 @@ npm/CHANGELOG.md      加一节
 ```bash
 # 1. 改上面四处版本号
 npm run check:engine        # 引擎和上游一致？（见 §1.5）
-npm test                    # 44 项 + 打包→安装→运行全链路
-git add -A && git commit -m "release: 0.5.0"
+npm test                    # 全部断言 + 打包→安装→运行全链路
+git add -A && git commit -m "release: <版本号>"
 git push
 cd npm && npm publish       # 先提交再发布，别反过来
 cd .. && node catalog/stamp.mjs   # 把 catalog 条目的 commit 钉到这次提交
@@ -255,7 +255,7 @@ python scripts/build_dist.py        # → dist/skill-auditor.zip
 `dist/` 在 `.gitignore` 里（构建产物不入库），zip 内容按白名单打，不含
 `registry.*.json` / `baseline-results.json` / 个人 `golden/*.json`。
 
-当前 17 个文件。`demo.py` 也在里面 —— README 和 SkillHub 描述都指向「30 秒试一下」，
+当前 30+ 文件（以 build_dist.py 实际输出为准）。`demo.py` 也在里面 —— README 和 SkillHub 描述都指向「30 秒试一下」，
 不带它，从市场装的人第一步就跑不动（补这个是因为打完包才发现白名单漏了它）。
 
 **本机验过自包含**：解压 zip 到临时目录 → 直接 `python demo.py` → 7 步跑完，
@@ -283,7 +283,7 @@ returncode 0，全程只写自己的沙盒目录。
 | 审核 | 静态门禁 + 自动合并 | 站点审核 |
 | 版本权威 | npm `latest` | `_meta.json` 的 `version` |
 
-两边版本号必须一致，否则用户会看到「市场说 0.5.0、装完是 0.4.x」。
+两边版本号必须一致，否则用户会看到「市场说的版本和装完的不一致」。
 
 ---
 
@@ -340,8 +340,8 @@ pin 才指向一个真实存在、内容不会再变的 revision。
 ```bash
 node catalog/validate.mjs      # 用市场自己的校验器验条目
 npm run check:engine           # 引擎与上游一致
-npm test                       # 44 项 + 全链路
-python scripts/test_engine.py  # 引擎回归（16 项，含 GBK / 合并 / 漂移）
+npm test                       # 全部断言 + 全链路
+python scripts/test_engine.py  # 引擎回归（95 项，含 GBK / 合并 / 漂移）
 python demo.py                 # 几秒沙盒演示，不碰真实数据
 ```
 

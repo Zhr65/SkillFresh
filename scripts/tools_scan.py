@@ -136,18 +136,17 @@ def scan_tools(plugin_dir):
         # 注意：这里的 "not tools" 必须看**本文件**是否还没贡献过工具名，
         # 不能看全局 tools —— 否则前一个文件命中后，后续文件的结构化匹配就被跳过
         # （实测：hindsight 的 tools.register 因前面文件先塞了字面量而丢失）。
-        if True:
-            cands = {}
-            for m in re.finditer(r"['\"]([a-z][a-z0-9]{1,20}_[a-z0-9_]{2,40})['\"]", text):
-                n = m.group(1)
-                if n in NOISE or not IDENT.match(n):
-                    continue
-                cands[n] = cands.get(n, 0) + 1
-            for n, c in cands.items():
-                if c >= 2 and (stem[:3] in n or n.split("_")[0] == stem):
-                    tools.add(n)
-            if cands:
-                reasons.append("literal@%s" % os.path.basename(path))
+        cands = {}
+        for m in re.finditer(r"['\"]([a-z][a-z0-9]{1,20}_[a-z0-9_]{2,40})['\"]", text):
+            n = m.group(1)
+            if n in NOISE or not IDENT.match(n):
+                continue
+            cands[n] = cands.get(n, 0) + 1
+        for n, c in cands.items():
+            if c >= 2 and (stem[:3] in n or n.split("_")[0] == stem):
+                tools.add(n)
+        if cands:
+            reasons.append("literal@%s" % os.path.basename(path))
 
     return sorted(tools), reasons
 

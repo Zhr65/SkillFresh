@@ -1,6 +1,6 @@
 {
   "name": "dsh-skill-auditor",
-  "version": "0.9.0",
+  "version": "0.9.1",
   "source": "skill-auditor (upstream engine)",
   "fileCount": 30,
   "files": [
@@ -26,8 +26,8 @@
     },
     {
       "path": "scripts/audit.py",
-      "bytes": 20272,
-      "sha256": "d71eb6b07e3ae75c0e771e2b5264d8da68d21faf14ff6bf1ea0f60c5fa7449d0"
+      "bytes": 20675,
+      "sha256": "4ed3f4d4c6bbcc035b0e9aa04a9d75937abec6227cb47de36b5c1a4d45bb1c73"
     },
     {
       "path": "scripts/baseline.py",
@@ -36,13 +36,13 @@
     },
     {
       "path": "scripts/build_dist.py",
-      "bytes": 3796,
-      "sha256": "f0059d18757706535bc7ceae4badb2674aeba68f830b670cb26d2d537f60f64b"
+      "bytes": 3813,
+      "sha256": "fe356f31e334f4fdd84dcda03028848256b80fc6eb5ed43aa3a431e2858c2af0"
     },
     {
       "path": "scripts/console.py",
-      "bytes": 119733,
-      "sha256": "870d5b98742c95145a1c8f1f73deab7713f28f56f46aebb6e3c96b819d0bfde0"
+      "bytes": 120879,
+      "sha256": "492edcf4036aad8fccf3923103326e8cf1e1161460d670b7390e593c4f86fa7d"
     },
     {
       "path": "scripts/fingerprint.py",
@@ -51,13 +51,13 @@
     },
     {
       "path": "scripts/install.py",
-      "bytes": 9831,
-      "sha256": "0b896b283505e1a4cdf8dd647826ce3c504172e6d34778bcd9527decebb65a7d"
+      "bytes": 10387,
+      "sha256": "5d2333cb8fad1e325d1bcd4a19d1f4d5df37d6a2b54bc56d0d81fb2c7bab72d2"
     },
     {
       "path": "scripts/market.py",
-      "bytes": 9389,
-      "sha256": "a7651e9e8027fdc6bf676b0269ad4b1c6255c0ba275754f67a92b3f77da58c85"
+      "bytes": 10321,
+      "sha256": "e28bbb114a4b03821a244101572eaf042ccd7407974dd8b23e0e7c8adfa2e04b"
     },
     {
       "path": "scripts/regress.py",
@@ -66,8 +66,8 @@
     },
     {
       "path": "scripts/tools_scan.py",
-      "bytes": 7012,
-      "sha256": "402127654dcb8b8e053c058a4e01857ebe2c1e04c44941c1f2df3f543bae7c37"
+      "bytes": 6951,
+      "sha256": "196f66c6189f67aa0ea7a7db58086bf7490bef8ddd0d8b2159f2ef0ba516f78a"
     },
     {
       "path": "seed/brainstorming.json",
@@ -147,7 +147,7 @@
     {
       "path": "SKILL.md",
       "bytes": 21800,
-      "sha256": "2262721844c77f28241b436cf16f1268a1138659a4875ee8b7f15daad7d04ae5"
+      "sha256": "c22cbe3c83dbd5bafd89298eeb55eeadbae971ee374014d12993e1ae3085e9c5"
     },
     {
       "path": "USAGE.md",
