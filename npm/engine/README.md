@@ -1,260 +1,223 @@
-# skill-auditor
+# dsh-skill-auditor
 
-**DSH 能力管家** — 说一句话就能用上你装过的插件。
+**你的 DSH 装了 20 个插件，但你真的用上了吗？**
 
-三件事：
+这个工具回答三个问题——**都在对话里，不用你敲命令**：
 
-1. **能力路由**（`find` / `can`）— 用户说「帮我记住这个」，工具回答"该调 `hindsight_capture_initiative`"；不用记插件名，也不用知道它暴露了什么。
-2. **主动体检**（`audit`）— 版本落后（对比 npm registry）、运行时故障（读宿主日志）、基线通过率，三面一次出结论。插件装上后 8 秒自动跑。
-3. **能力利用盘点**（`insights`）— 装了 10 个插件只用了 3 个工具？每个"睡觉"的工具都告诉你它是干什么的、怎么唤醒。
+---
 
-底层是**能力折旧表**方法论：版本指纹 + golden set 回归 + 20pp 阈值，把"感觉模型变笨了"变成可复现的判据。
+## 1. 「那个查余额的叫啥来着？」
 
-零依赖（纯 Python 标准库），8 个脚本 + 一个 DSH 插件（9 个工具）+ 一个有断言的沙盒演示。
+你装了插件，但忘了名字。
 
-> 仓库名 `dsh-skill-auditor` 与 npm 包名一致，代码里的项目名是 `skill-auditor`。同一件东西的三个叫法。
+> 你：帮我查下余额
 >
-> 装法：`npm i -g dsh-skill-auditor` · `dsh plugin --profile web add dsh-skill-auditor` · 或直接 clone 当 skill 用。
+> 它：（查已装插件）你装的是 `dsh-whale-widget`，直接说「用鲸鱼挂件看余额」就行
 
-## 30 秒试一下
+不用记插件名，也不用知道它暴露了什么工具。**说功能就行**。
+
+---
+
+## 2. 「这些插件还好用吗？」
+
+插件会坏、会过时，但通常没人告诉你。
+
+装好后**自动体检**（宿主启动 8 秒后跑一次，不阻塞你），结论写在一个文件里：
+
+```
+🔴 建议先修（1）
+  browser-skill   装是装上了，但依赖的 bsk 命令行找不到
+
+⬆️ 建议升级（1）
+  dshmarket       1.66.5 → 1.66.42（落后 37 个版本）
+
+✅ 正常（3）
+```
+
+它区分三种事：**跑不起来**（修环境）、**版本落后**（升级）、**能力退化**（模型换代后重跑用例测出来的）。
+
+第三件是这东西的核心——**换模型后，同一批用例重跑，通过率掉超过 20pp 才算退化**。不是「感觉变笨了」，是有数据。
+
+---
+
+## 3. 「我这插件是不是只用了个皮毛？」
+
+装了插件，但只用了最显眼那个按钮。
+
+```
+能力利用盘点 · 14 个工具
+已用 1 / 14    未动用 13
+
+💡 还在睡觉的 13 个：
+  · hindsight_capture_initiative  —— 能把重要讨论存成可检索的记忆
+  · bsk_tabs                      —— 多标签页操作，批量对比页面用得上
+  · bsk_session                   —— 管理多个浏览器会话
+```
+
+每个没用上的工具都告诉你**它是干什么的、什么场景该用**。数据来源是插件自己的源码——工具名和描述都是扫出来的，不靠插件作者自觉。
+
+---
+
+## 装
+
+**方式一：当 DSH 插件用**（推荐，能力全开）
+
+```bash
+dsh plugin --profile web add dsh-skill-auditor
+```
+
+装完重启 DSH，8 秒后自动体检。
+
+**方式二：当普通 CLI 用**
+
+```bash
+npm i -g dsh-skill-auditor
+dsh-skill-auditor            # 裸跑 = 直接出体检结论
+```
+
+---
+
+## 为什么值得信
+
+这个工具自己就反对「凭感觉下结论」：
+
+- **不猜**：判不出来就说「判不出来」。模型版本推不到时它拒绝写戳，而不是写个假的。
+- **不伪造**：插件没有可调用工具时，它说「这是纯 UI 插件，让用户在界面里用」，不会假装能调。
+- **数据说话**：能力退化要「指纹没变 + 通过率掉 ≥20pp + 方向一致」三条同时成立。只掉一点或者有升有降，都只标「观察」，不叫退化。
+- **零依赖、纯本地**：只用 Python 标准库。判定、体检、盘点全在你机器上跑，除了可选的插件市场查询，不联网。
+- **不自动改任何东西**：不自动卸载、不自动升级、不改你的配置。只报告。
+
+---
+
+## 它怎么做到「说功能就能用」
+
+三步，全在本地：
+
+1. **扫**——读插件源码，提取它注册了哪些工具、每个工具干什么
+2. **路由**——把用户的话（「帮我记住这个」）映射到功能域（记忆），再映射到具体插件和工具名
+3. **交付**——把工具名交给模型，模型直接调用
+
+支持 28 个计算机方向的功能域（数据库、部署、测试、爬虫、鉴权、监控、CI…），中文说法和英文说法都认。
+
+---
+
+## 支持的宿主
+
+| 宿主 | 评什么 | 目录 |
+|---|---|---|
+| **DSH** | 插件 | `~/.dsh/profiles/<profile>` |
+| WorkBuddy | skill | `~/.workbuddy-ai/skills` |
+| Claude Code | skill | `~/.claude/skills` |
+| 通用 | 任意 | `--root` 指定 |
+
+同一套引擎，每个宿主只是一个适配器（知道资产在哪、清单长什么样）。
+
+---
+
+## 30 秒看效果（不碰你的数据）
 
 ```bash
 git clone https://github.com/Zhr65/dsh-skill-auditor.git && cd dsh-skill-auditor
-python demo.py            # 几秒，全程在 demo/ 沙盒里，不碰你的任何数据
-python demo.py --clean    # 看完删掉
+python demo.py
 ```
 
-> HTTPS 走不通就用 SSH：`git clone git@github.com:Zhr65/dsh-skill-auditor.git`（需已配 GitHub SSH key）
+它在 `demo/` 沙盒里造 6 个假 skill，真跑一遍完整流程：扫描 → 建基线 → 模拟模型换代 → 重跑 → 判定谁退化了。全程不读也不写你的任何真实数据。
 
-它会在沙盒里造 6 个假 skill，真跑一遍引擎：
+---
 
-```
-6 个假 skill → scan 出真实指纹 → 建基线（全过）→ 模型换代 → check 发现基线过期
-→ 用新模型重跑 → report 出判定：2 个降级、1 个指纹漂移、3 个稳定
-→ 新结果落成新基线 → status 表里出现 1/3、2/3 → recommend 亮出「已降级」档
-```
+## 命令附录
 
-判定是 `regress.py` **真算**的（阈值、漂移检测、众数归因都真跑），只有每个用例的 `passed` 值是构造的
-（代表「假设新模型在这些用例上的表现」，标了 `"synthetic": true`）。看完你就知道「有判定之后长什么样」，
-不用先憋 30 条 golden set。
-
-## 它解决什么
-
-- **能力退化**：模型每几个月迭代一次，但「我名下的 skill 在新模型上还灵不灵」没人回答。本工具用「版本指纹 + golden set 回归 + 20pp 阈值」把「感觉变笨了」变成可复现的判据。
-- **新 skill 好不好用**：消融对照、采纳率、净收益公式（方法论，尚未自动化，工具不产出这些数）。
-- **是否适合你**：触发精度、环境对账、风格基准（同上，方法论层）。
-- **无匹配时推荐**：对话里出现没有 skill 覆盖的需求时，先查注册表，再按需推荐安装项。
-
-## 多宿主：同一引擎，评 skill 也评插件
-
-核心引擎（指纹 / 基线 / 回归 / 推荐 / 需求匹配）完全共享；每个宿主只是一个适配器，知道「资产在哪、清单长什么样」。
-
-| 宿主 | 评什么 | 默认目录 | 清单文件 |
-|---|---|---|---|
-| workbuddy | skill | 本 skill 所在的 skills 根 | `SKILL.md` |
-| claude-code | skill | `~/.claude/skills` | `SKILL.md` |
-| deepseek | 插件 | `~/.dsh/profiles/desktop`（读 package.json 依赖） | `package.json` / `plugin.json` |
-| generic | 任意 | `--root` 指定 | `plugin.json` / `manifest.json` / `SKILL.md` / `package.json` |
-
-- 每个宿主独立注册表 `registry.<host>.json`，互不覆盖。
-- 基线结果与 golden set 共享（按资产名索引）。
-- 加新宿主 = 在 `hosts.json` 加一条（kind + root + 清单文件名），**不用改代码**。
+<details>
+<summary>日常就三条（点开看）</summary>
 
 ```bash
-python scripts/console.py hosts                                    # 看所有宿主 + 探测到的资产数
-python scripts/console.py --host workbuddy scan                    # 评 skill
-python scripts/console.py --host deepseek --root <插件目录> scan    # 评插件
-python scripts/console.py --host deepseek status                   # 插件折旧表
+dsh-skill-auditor              # 体检（裸跑就是这个）
+dsh-skill-auditor insights     # 能力利用盘点
+dsh-skill-auditor find "记忆"  # 按功能找插件
 ```
 
-> DeepSeek harness 的插件以 npm 依赖形式装在 `~/.dsh/profiles/<profile>/node_modules/`；适配器读该 profile 的 `package.json` dependencies 来认定「已安装」，不会把 `node_modules` 里的传递依赖误当成插件。换 profile 改 `root` 即可。
+</details>
 
-## 安装（三选一）
-
-**1) 手动复制（最简单）**
-```bash
-# 用户级（所有项目可用）；clone 下来的目录叫 dsh-skill-auditor，要改名为 skill-auditor
-cp -r dsh-skill-auditor ~/.workbuddy-ai/skills/skill-auditor
-# 或项目级（仅当前项目）
-cp -r dsh-skill-auditor <project>/.workbuddy-ai/skills/skill-auditor
-```
-
-**2) git clone**
-```bash
-git clone https://github.com/Zhr65/dsh-skill-auditor.git ~/.workbuddy-ai/skills/skill-auditor
-```
-
-**3) 技能市场**（若已发布）
-```bash
-npx skills@latest add Zhr65/dsh-skill-auditor
-```
-
-> 目录名必须是 `skill-auditor`，且 `SKILL.md` 在其根目录——这是 skill 的加载约定。
-
-## 快速开始（5 条命令）
+<details>
+<summary>全部命令（开发者向）</summary>
 
 ```bash
-cd ~/.workbuddy-ai/skills/skill-auditor
-python scripts/console.py setup --model v-current-2026-10-17   # 一键初始化
-python scripts/console.py scan                                  # 扫描 skill 目录，建注册表
-python scripts/console.py status                                # 看折旧表
-python scripts/console.py recommend                             # 推荐/淘汰面板
-python scripts/console.py suggest --need "帮我做一份财务分析报告"  # 无匹配时按需求推荐
+python scripts/console.py can "做个PPT"      # 这件事能不能做
+python scripts/console.py find "查余额"       # 按功能找资产
+python scripts/console.py insights           # 能力利用盘点
+python scripts/console.py audit              # 体检（版本+运行时+基线）
+python scripts/console.py status             # 折旧表
+python scripts/console.py recommend          # 推荐/淘汰面板（六档）
+python scripts/console.py check              # 模型换代了吗
+python scripts/console.py probe              # 读日志找运行时故障
+python scripts/console.py scan               # 重新扫描资产
+python scripts/console.py suggest --need "X" # 缺能力时推荐
 ```
 
-`setup` 只创建本地数据文件（每个宿主一个模型戳、golden 模板），不覆盖已有数据。
+所有命令加 `--host <宿主>` 指定评哪个宿主，`--out <dir>` 换数据目录。
 
-> `hosts.json` 是**本地**配置（含你机器的真实路径，已 gitignore）；首次跑 `discover --write` 会自动生成。想手写就复制 `hosts.example.json`。
+**退出码可编程**：`0` 正常 / `2` 有问题或需要重跑 / `3` 缺能力。
 
-## 让别人用上（新用户三步）
+</details>
 
-别人装上后最缺两样东西：**资产路径**和**基线数据**。三个命令解决：
+<details>
+<summary>建模基线（想让判定更准才需要）</summary>
+
+装完就能用，基线是可选的加强项。想跑：
 
 ```bash
-python scripts/console.py discover --write          # 自动探测本机 WorkBuddy / Claude Code / DeepSeek / agents 的资产目录，写回 hosts.json
-python scripts/console.py --host workbuddy scan     # 扫描，建注册表
-python scripts/console.py --host workbuddy bootstrap # 从本地历史生成 golden 草稿
+python scripts/baseline.py --from-seed --host deepseek --model <当前模型>
+python scripts/console.py --host deepseek scan
 ```
 
-或者一条命令串起来：
+`seed/` 是随包分发的公共用例库（35 条，覆盖 10 个常见资产），`--from-seed` 只取你真实装了的那些，不凑数。
 
-```bash
-python scripts/console.py --host workbuddy onboard
-```
+模型升级后重跑一遍，就能看到「哪些资产在新模型上退化了」。
 
-`bootstrap` 会读本机会话 transcript（`~/.workbuddy-ai/projects`、`~/.claude/projects`、`~/.dsh/sessions`），把**真实用户请求**按关键词匹配到对应 skill/插件，生成 `golden/<asset>.json` 草稿（标 `"draft": true`）。草稿里的 `expected` / `judge` 是占位符，**需要人工补**，补完再跑 baseline 才有意义。
+</details>
 
-> 这就是「别人也能用」的关键：工具不再依赖某个人的 golden set，而是从每个用户自己的历史里长出来。
+<details>
+<summary>数据都在哪</summary>
 
-## 模型升级后
+全部本地，个人数据不进仓库、不进包：
 
-```bash
-# 1) 记录模型换代（每个宿主一个戳；平台在生产里应自动写）
-python scripts/console.py --host workbuddy bump <新模型版本>
-python scripts/console.py --host workbuddy check     # 退出码 2 = 需要重跑
-
-# 2) 用新模型重跑 golden set -> new-results.json
-python scripts/console.py --host workbuddy report --results new-results.json --promote
-#    --promote 是必需的：报告默认只写报告，不碰基线
-#    合并按资产进行：这次跑到的资产替换，没跑到的保留并打印
-
-# 3) 重扫，让折旧表和面板看到新判定
-python scripts/console.py --host workbuddy scan
-python scripts/console.py --host workbuddy recommend
-```
-
-> `scan` 只统计**当前模型戳**下的基线。换代后还没重跑的资产会回到 `unverified`——这是有意的：
-> 旧模型上的 100% 不能证明新模型上还灵。看到一片未验证，说明该重跑了，不是工具坏了。
-
-## 命令一览
-
-| 命令 | 作用 |
+| 文件 | 内容 |
 |---|---|
-| `hosts` | 列出宿主配置与探测到的资产数 |
-| `setup` | 初始化本地数据（版本戳 + golden 模板） |
-| `scan` | 扫描 skill 目录，算指纹，合并基线 → `registry.<host>.json` |
-| `status` | 折旧表 |
-| `check` | 模型版本是否变更 → 是否需重跑 |
-| `bump <ver>` | 模拟/记录模型切换事件（按宿主） |
-| `recommend` | 推荐/淘汰面板 |
-| `report [--promote]` | 生成折旧报告；`--promote` 把结果合并进基线 |
-| `probe` | 读宿主日志，找「装得像、跑不起来」的资产 |
-| `suggest --need "<需求>"` | 缺能力时主动推荐（已装优先，未装给命中词/搜索词/去哪搜/值不值得装） |
-| `seed audit` | seed/ 覆盖了什么、哪些你本机能跑 |
-| `baseline --from-seed` | 用社区 seed 建基线（只取你装了的资产） |
-| `seed contribute` | 贡献一个 case（自动脱敏） |
-| `discover [--write]` | 探测本机各宿主资产目录，可写回 hosts.json |
-| `bootstrap [--per-asset N]` | 从本地历史生成 golden 草稿（draft，需补完） |
-| `onboard` | discover + scan + bootstrap 一键引导 |
+| `registry.<host>.json` | 资产清单 + 指纹 + 工具名 |
+| `baseline-results.json` | 判定记录 |
+| `model-version.json` | 当前模型戳 |
+| `last-audit.txt` | 最近一次体检报告 |
 
-全局 `--out <dir>` 会把**所有**本地数据（registry / baseline / 模型戳 / golden 模板）放到该目录，不再散在两处。
+安装器复制到其他宿主时**只带代码和文档**，不搬注册表、基线、个人用例。
 
-### 陌生用户先看这里
+</details>
 
-装完看到一片 `unverified` 是正常的（你没有 golden set，也没有历史可挖）。`seed/` 是**随包分发的社区公共用例库**，装上就能跑：
+<details>
+<summary>项目结构</summary>
+
+```
+scripts/      引擎（8 个脚本，纯标准库）
+npm/          DSH 插件 + npm 包（9 个工具）
+seed/         公共用例库（随包分发）
+golden/       你自己的用例（不上传）
+catalog/      市场收录条目
+demo.py       沙盒演示
+```
+
+</details>
+
+---
+
+## 开发
 
 ```bash
-python scripts/console.py --host workbuddy seed audit      # seed 覆盖什么
-python scripts/baseline.py --from-seed --host workbuddy --model <模型>
-python scripts/console.py --host workbuddy scan && python scripts/console.py --host workbuddy status
+python scripts/test_engine.py    # 95 项引擎测试
+python demo.py                   # 端到端演示
+cd npm && npm test               # 插件冒烟 + 打包安装全链路
 ```
 
-`--from-seed` 只取你**真实装了的**资产，装不上的不凑数；你自己的 `golden/` 永远优先于 seed。
-判定标准是社区初版，不是权威。
+MIT License。
 
-### 缺能力时它主动推荐（suggest）
+---
 
-Agent 干活时遇到你名下没有的能力（比如"帮我设计一个 app 的界面"、但没有 UI skill），
-`suggest` 会给出**已装优先 → 未装给缺口**的结论：
-
-```bash
-python scripts/console.py --host workbuddy suggest --need "帮我设计一个app的界面"
-```
-
-输出包含四件事，Agent 拿这一份就能去搜、并且知道值不值得装：
-
-| 字段 | 例 |
-|---|---|
-| 命中词 | `设计, 界面, app`（告诉你它怎么理解你的话） |
-| 搜索词 | `UI 设计 app 界面 mockup` |
-| 去哪搜 | `SkillHub（office/frontend 类）+ GitHub` |
-| 值不值得装 | `一次性原型用内置能力做；要反复产出设计稿才值得装` |
-
-已装的相关资产**永远排在推荐前面**（"你已有 browser-use，直接用"），不会让你重复装。
-跨类目的需求（"设计一个 app 界面并做成网页"）会报多个缺口并按命中词多少排序。
-
-## 安全与隐私
-
-- **零依赖、无网络**：所有脚本只用 Python 标准库，不发送任何数据。
-- **不自动删、不自动装**：淘汰与安装都需要用户确认；优先「停用/归档」再删除。
-- **个人数据只留在本地**：`registry.<host>.json`、`baseline-results.json`、`recorded-*.json`、`model-version*.json`、填好的 `golden/*.json`、`replay/` 都在 `.gitignore` 里，不会随仓库分发。
-- **安装器不搬运数据**：`install.py` 复制到其他宿主时只带代码、文档和 `golden/_template.json`，不复制 registry / 基线 / 个人 golden。
-- **golden set 含真实用户 prompt**：不要分享填好的 golden 文件。
-
-## 分发内容 vs 本地生成
-
-**随包分发**：`SKILL.md`、`USAGE.md`、`DISTRIBUTION.md`、`README.md`、`LICENSE`、`_meta.json`、`hosts.example.json`、`demo.py`、`scripts/*.py`（不含测试与 `tools/`）、`seed/*`、`golden/README.md`、`golden/_template.json`
-
-**本地生成（不打包）**：`registry.<host>.json`、`hosts.json`、`model-version*.json`、`baseline-results.json`、`recorded-*.json`、`*-report.*`、`replay/`、填好的 `golden/<skill>.json`
-
-打包：`python scripts/build_dist.py` → 产出 `dist/skill-auditor/` 与 `dist/skill-auditor.zip`（自动排除个人数据）。
-
-## 发布前检查清单
-
-- [ ] `python scripts/test_engine.py` 全过（指纹口径 / 阈值 / 漂移 / 合并 / GBK / seed）
-- [ ] `python scripts/console.py --host workbuddy seed audit` 无「index 与 seed/ 不一致」告警
-- [ ] `python demo.py` 退出码 0（真实跑完 7 步，有断言）
-- [ ] `cd npm && npm test` 全过；`npm run check:engine` 显示一致（engine 没漂）
-- [ ] `python scripts/build_dist.py` 后抽查 `dist/` 里没有 registry / golden 实填 / hosts.json
-- [ ] 版本号四处一致：`SKILL.md` / `npm/package.json` / `npm/plugin.json` / `_meta.json`
-- [ ] 发布前 `node catalog/stamp.mjs` 把市场条目钉到本次提交
-- [ ] README 补 1 张 `status` / `recommend` 截图
-
-## 目录结构
-
-```
-skill-auditor/
-├── SKILL.md              # 方法论 + 触发条件（skill 入口）
-├── USAGE.md              # 使用与验证指南
-├── README.md             # 本文件
-├── DISTRIBUTION.md       # 分发/安装渠道与坑
-├── PUBLISH.md            # 发布与市场收录材料
-├── LICENSE
-├── _meta.json            # SkillHub 元数据
-├── demo.py               # 30 秒沙盒演示（有断言）
-├── .gitignore            # 排除个人数据
-├── scripts/
-│   ├── console.py        # 常驻控制台（含 probe / suggest / seed / bootstrap）
-│   ├── fingerprint.py    # 版本指纹报告（薄包装）
-│   ├── regress.py        # 回归 + 降级/漂移判定
-│   ├── baseline.py       # 基线脚手架 + 按资产合并 + --from-seed
-│   ├── install.py        # 装到本机各 agent 宿主（不搬个人数据）
-│   ├── test_engine.py    # 引擎回归测试（不随包分发）
-│   └── build_dist.py     # 干净打包
-├── seed/                 # 社区公共 golden（随包分发）
-├── npm/                  # DSH 插件（6 个工具 + 入库的 engine/）
-├── catalog/              # 市场条目 + 校验/钉 commit 脚本
-└── golden/
-    ├── README.md         # golden set 说明
-    └── _template.json    # 模板（本地复制后填真实用例）
-```
+<sub>这个 README 的原则：**先讲你能得到什么，再讲怎么敲**。看不明白哪段，是写的人的问题，不是你的问题。</sub>
