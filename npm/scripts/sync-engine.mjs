@@ -59,6 +59,12 @@ function sha256(buf) {
 /** 本机绝对路径 → 中性占位符。顺序敏感：先处理 python.exe，再兜底整段 home。 */
 function sanitize(text) {
   return text
+    // 【CI 回归修复】换行统一为 LF。
+    // .gitattributes 规定 `* text=auto eol=lf`，git 会把提交内容转成 LF；
+    // 但本脚本原本原样写入源文件的 CRLF（Windows 检出），于是
+    // 本地 sync 出的 engine/ 与仓库里的永远差 N 个字节，check:engine 必失败。
+    // 在源头归一，保证任何平台生成的 engine/ 哈希一致。
+    .replace(/\r\n?/g, '\n')
     .replace(/[A-Za-z]:[\\/]Users[\\/][^\\/\s"'`]+[\\/][^\s"'`]*?python(?:\.exe)?/gi, 'python')
     .replace(/[A-Za-z]:[\\/]Users[\\/][^\\/\s"'`]+[\\/][^\s"'`]*/gi, '<home>')
     .replace(/\/Users\/[^/\s"'`]+[^\s"'`]*/g, '<home>')
