@@ -954,13 +954,24 @@ class DshProfileDiscoveryTests(unittest.TestCase):
         })
 
     def test_bundles_is_authoritative_not_dependencies(self):
-        """bundles 里声明、dependencies 里没有的插件必须被发现（dshmarket 就是这种）。"""
+        """bundles 里声明、dependencies 里没有的插件必须被发现（dshmarket 就是这种）。
+
+        【CI 回归修复】`configure_data_dir` / `app_node_modules()` 返回的是**真实**
+        Electron 主包路径（Windows 专有），Linux CI 上拿到 None，于是这里造的
+        dshmarket 目录根本没被读到 → 'dshmarket' not found。
+        必须 monkey-patch 指向测试自己的 appnm，和 test_origin_labels 一致。
+        """
         self._profile_json({"plug-a": "1.0.0"},
                            ["@deepseek-ai/dsh-base", "plug-a", "dshmarket"])
         self._mk(os.path.join(self.profile, "node_modules"), "plug-a")
         self._mk(self.appnm, "dshmarket")          # 只在 Electron 主包里
-        got = [a["id"] for a in console.discover_assets(
-            self.profile, ["package.json"], "deps", quiet=True)]
+        orig = console.app_node_modules
+        try:
+            console.app_node_modules = lambda: self.appnm
+            got = [a["id"] for a in console.discover_assets(
+                self.profile, ["package.json"], "deps", quiet=True)]
+        finally:
+            console.app_node_modules = orig
         self.assertIn("plug-a", got)
         self.assertIn("dshmarket", got, "bundled 插件必须被发现")
 
