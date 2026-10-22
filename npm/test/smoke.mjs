@@ -73,7 +73,12 @@ for (const t of registered) {
 
 // ---------------------------------------------------------------- ② 真跑引擎
 console.log('\n[2] 引擎（临时 DSH_HOME）')
-const { engineInfo } = await import('../lib/engine.mjs')
+const { engineInfo, ensureEngine } = await import('../lib/engine.mjs')
+
+// 必须先 ensureEngine，hosts.json 才会被创建出来（下面要改它的 deepseek.root）。
+// 【CI 回归修复 2】上一版直接在 engineInfo().dataDir 上读 hosts.json，
+// 文件还不存在 → ENOENT 直接崩。ensureEngine 是幂等的，这里先跑一次。
+ensureEngine()
 
 // 【CI 回归修复】原来这些断言直接跑 --host deepseek，而该宿主的 root 是
 // ~/.dsh/profiles/desktop —— CI 机器上那个目录不存在/为空，scan 扫不到资产
@@ -165,7 +170,6 @@ const custom = JSON.parse(before)
 custom.hosts.myhost = { kind: 'skill', label: 'skill', root: '~/my-skills', discover: 'dirs', manifests: ['SKILL.md'] }
 fs.writeFileSync(path.join(dataDir, 'hosts.json'), JSON.stringify(custom, null, 2))
 
-const { ensureEngine } = await import('../lib/engine.mjs')
 const again = ensureEngine()
 check(again.action === 'unchanged', '重复 ensureEngine 是 unchanged', JSON.stringify(again))
 const after = JSON.parse(fs.readFileSync(path.join(dataDir, 'hosts.json'), 'utf8'))
