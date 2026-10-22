@@ -75,6 +75,40 @@ for (const t of registered) {
 console.log('\n[2] 引擎（临时 DSH_HOME）')
 const { engineInfo } = await import('../lib/engine.mjs')
 
+// 【CI 回归修复】原来这些断言直接跑 --host deepseek，而该宿主的 root 是
+// ~/.dsh/profiles/desktop —— CI 机器上那个目录不存在/为空，scan 扫不到资产
+// 就以 exit 1 退出，连带 status/recommend/check/probe 全红。
+// 现在自己造一个**假 profile**（一个声明了 dsh.bundle 的插件），
+// 把 hosts.json 里的 deepseek.root 指过去 —— 测试不再依赖真实环境。
+const FAKE_PROFILE = path.join(TMP, 'fake-profile')
+fs.mkdirSync(path.join(FAKE_PROFILE, 'node_modules', 'demo-plugin'), { recursive: true })
+fs.writeFileSync(
+  path.join(FAKE_PROFILE, 'package.json'),
+  JSON.stringify({
+    name: 'fake-profile',
+    private: true,
+    dependencies: { 'demo-plugin': '1.0.0' },
+    dsh: { profile: { bundles: ['demo-plugin'] } },
+  }, null, 2),
+)
+fs.writeFileSync(
+  path.join(FAKE_PROFILE, 'node_modules', 'demo-plugin', 'package.json'),
+  JSON.stringify({
+    name: 'demo-plugin',
+    version: '1.0.0',
+    description: 'smoke-test fixture plugin',
+    dsh: { bundle: { patch: './cordis.patch.yml' } },
+  }, null, 2),
+)
+const hostsFile = path.join(engineInfo().dataDir, 'hosts.json')
+{
+  const cfg = JSON.parse(fs.readFileSync(hostsFile, 'utf8'))
+  cfg.hosts = cfg.hosts || {}
+  cfg.hosts.deepseek = cfg.hosts.deepseek || {}
+  cfg.hosts.deepseek.root = FAKE_PROFILE
+  fs.writeFileSync(hostsFile, JSON.stringify(cfg, null, 2))
+}
+
 const status = registered.find((t) => t.name === 'skill_audit_status')
 const out = await status.execute({ host: 'deepseek' }, {})
 check(typeof out === 'string' && out.length > 0, 'status 返回非空字符串')
